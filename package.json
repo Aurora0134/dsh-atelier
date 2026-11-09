@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-motion",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Session screen motion: smooth streaming follow and a bounded reasoning viewport.",

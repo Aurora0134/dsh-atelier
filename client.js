@@ -55,10 +55,7 @@ window.__ModuleLoader__.load({
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 ${FADE_SIZE} calc(100% - ${FADE_SIZE}), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 ${FADE_SIZE} calc(100% - ${FADE_SIZE}), transparent 100%);
 }
-[data-chat-flow][data-session-motion-animating] {
-  will-change: transform;
-}
-[data-chat-running][data-session-motion-animating] {
+[data-session-motion-animating] {
   will-change: transform;
 }
 [data-session-motion-folding] {
@@ -66,8 +63,7 @@ window.__ModuleLoader__.load({
 }
 @media (prefers-reduced-motion: reduce) {
   [data-session-motion-viewport] { scroll-behavior: auto; }
-  [data-chat-flow][data-session-motion-animating] { will-change: auto; }
-  [data-chat-running][data-session-motion-animating] { will-change: auto; }
+  [data-session-motion-animating] { will-change: auto; }
   [data-session-motion-folding] { will-change: auto; }
 }
 `;
@@ -357,8 +353,8 @@ window.__ModuleLoader__.load({
         return scroll.closest('[data-conversation-scroll]') ?? scroll;
       };
 
-      const translateYOf = (column) => {
-        const transform = getComputedStyle(column).transform;
+      const translateYOf = (element) => {
+        const transform = getComputedStyle(element).transform;
         if (transform === 'none') return 0;
         const match = transform.match(/^matrix\(([^)]+)\)$/);
         if (match === null) return 0;
@@ -367,8 +363,33 @@ window.__ModuleLoader__.load({
       };
 
       /**
+       * The slide rides the flow box, not the column: a shifted box inside the
+       * scrollport enlarges its scroll height, and the next follow write would
+       * overshoot by that much. Clipping the column keeps the geometry intact.
+       */
+      const surfaceOf = (column) => column.querySelector(':scope > [data-slot="conversation.chat.flow"]');
+
+      const clipColumn = (column, scrollport) => {
+        const gutter = Number.parseFloat(getComputedStyle(scrollport).paddingBottom) || 0;
+        column.style.overflowY = 'clip';
+        column.style.overflowX = 'visible';
+        if (gutter > 0) {
+          /* Reach the clip edge to the scrollport floor so emerging rows are not cut early. */
+          column.style.paddingBottom = gutter + 'px';
+          column.style.marginBottom = -gutter + 'px';
+        }
+      };
+
+      const unclipColumn = (column) => {
+        column.style.overflowY = '';
+        column.style.overflowX = '';
+        column.style.paddingBottom = '';
+        column.style.marginBottom = '';
+      };
+
+      /**
        * The live status row is pinned to the floor. It rides the same translate
-       * as the column, so it gets the opposite one: same duration, same easing,
+       * as the flow box, so it gets the opposite one: same duration, same easing,
        * applied in the same task, which keeps its net displacement at zero.
        */
       const releasePinned = (record) => {
@@ -385,7 +406,7 @@ window.__ModuleLoader__.load({
       };
 
       const pinRunningRow = (record, offset) => {
-        const row = record.column.querySelector('[data-chat-running]');
+        const row = record.surface.querySelector('[data-chat-running]');
         if (row === null) return;
         const from = 'translateY(' + offset.toFixed(2) + 'px)';
         row.style.transform = from;
@@ -414,24 +435,24 @@ window.__ModuleLoader__.load({
           }
           record.anim = null;
         }
-        record.column.style.transform = '';
-        record.column.removeAttribute('data-session-motion-animating');
+        record.surface.style.transform = '';
+        record.surface.removeAttribute('data-session-motion-animating');
         releasePinned(record);
       };
 
       const animateGrowth = (record, delta) => {
-        const column = record.column;
+        const surface = record.surface;
         if (prefersReducedMotion()) return;
         if (performance.now() < gestureCooldownUntil) return;
         if (delta > STRUCTURAL_GROWTH_PX) return;
-        const start = translateYOf(column) + delta;
+        const start = translateYOf(surface) + delta;
         if (!Number.isFinite(start) || start <= 0.5) return;
         const from = 'translateY(' + start.toFixed(2) + 'px)';
-        column.style.transform = from;
-        column.setAttribute('data-session-motion-animating', '');
+        surface.style.transform = from;
+        surface.setAttribute('data-session-motion-animating', '');
         let anim;
         try {
-          anim = column.animate(
+          anim = surface.animate(
             [{ transform: from }, { transform: 'translateY(0px)' }],
             { duration: FOLLOW_MOTION_MS, easing: MOTION_EASING, fill: 'forwards' }
           );
@@ -453,8 +474,8 @@ window.__ModuleLoader__.load({
         anim.onfinish = () => {
           if (record.anim !== anim) return;
           record.anim = null;
-          column.style.transform = '';
-          column.removeAttribute('data-session-motion-animating');
+          surface.style.transform = '';
+          surface.removeAttribute('data-session-motion-animating');
           releasePinned(record);
           try {
             anim.cancel();
@@ -493,8 +514,12 @@ window.__ModuleLoader__.load({
         if (records.has(column)) return;
         const scrollport = scrollportOf(column);
         if (scrollport === null) return;
+        const surface = surfaceOf(column) ?? column;
+        if (surface !== column) clipColumn(column, scrollport);
         const record = {
           column,
+          surface,
+          clipped: surface !== column,
           lastFloor: scrollport.scrollHeight - scrollport.clientHeight,
           lastHeight: column.offsetHeight,
           lastClientHeight: scrollport.clientHeight,
@@ -516,6 +541,7 @@ window.__ModuleLoader__.load({
         if (record.observer !== null) record.observer.disconnect();
         record.column.removeAttribute('data-session-motion-tracking');
         clearMotion(record);
+        if (record.clipped) unclipColumn(record.column);
       };
 
       const scan = () => {
