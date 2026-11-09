@@ -548,11 +548,13 @@ window.__ModuleLoader__.load({
         /* A native fold batch moves rows and the scrollport on its own clock. */
         if (scrollport.style.overflowAnchor === 'none') return;
         if (growth <= 0) return;
-        if (delta > 0 && Math.abs(floor - scrollport.scrollTop) <= FOLLOW_TOLERANCE_PX) {
+        /* While the transcript is shorter than the viewport nothing is scrolled, so the row travels down with the layout. */
+        if (delta <= 0) return;
+        if (Math.abs(floor - scrollport.scrollTop) <= FOLLOW_TOLERANCE_PX) {
           /* Unrelated scrollport growth (a taller composer) is not content movement. */
           animateGrowth(record, Math.min(delta, growth));
         }
-        /* Any growth above the floor may nudge the live status row, animated or not. */
+        /* A follow scroll carries every row up by the delta; hold the status row against it. */
         holdRow(record);
       };
 
