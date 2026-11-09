@@ -182,3 +182,73 @@ const p = document.querySelector('[data-sidebar-right-session][data-sidebar-righ
 ```
 
 结论：两处改动均按预期生效，未发现新回归。
+
+## 迭代验证：折叠态放置区「半开放」视觉（2026-11-09 17:44–18:10）
+
+应用已重启，GUI 换到 `http://127.0.0.1:6178`（旧 12022 不再监听，裸访问 401）。沿用前几轮的浏览器会话鉴权方式，独立 headless Chrome + CDP 验证；视口 1440×900，DPR 1。未重启应用、未触碰用户窗口、未调用 plugin_manager、未修改 `client.js`。
+
+> 工作区注记：验证开始时 `docs/verify/` 已在 17:49 的工作区重组中不存在。本节所依附的历史报告与历史截图从 `agent-home/trash/dsh-home-git-backup-20261109.bundle` 的 HEAD 恢复后再追加；恢复只写入 `docs/verify/`。
+
+| 检查项 | 结果 |
+| --- | --- |
+| 折叠态 zone 带 `data-floating` | 通过 |
+| zone 自身四边 border 全 0、背景为 none | 通过 |
+| `::before` 存在：border-left = 0、其余边虚线、`mask-image` 生效 | 通过（computed 1px，见下） |
+| 折叠态截图（armed、data-over） | 通过，2 张 |
+| 展开态不出现 `data-floating`，仍是四边闭合虚线框 | 通过 |
+| 拖放仍能打开标签页 | 通过 |
+| 左边缘无硬边 / 无矩形残影（像素级复核） | 通过（见下） |
+| console 无 session-aside 报错 | 通过 |
+
+### 1. 折叠态：data-floating 与计算样式 —— 通过
+
+起始：主屏为空白会话，右栏关闭（无 `[data-sidebar-right-open]`）。对非当前会话行派发 `dragstart`（`DataTransfer` 的 `text/plain = sessionId`）后：
+
+- 元素：`div[data-session-aside-dropzone][data-armed][data-floating]`，`display:flex`，rect `x=1100, y=0, 340×900`（视口右侧 340px）。
+- zone 自身 `getComputedStyle`：
+  - `border-top-width / right / bottom / left` 全部 `0px`，`border-style: none`，`border-radius: 0px`；
+  - `background-image: none`，`background-color: rgba(0, 0, 0, 0)`。
+- `getComputedStyle(zone, '::before')`：
+  - `content: ""`，`position: absolute`；
+  - `border-left-width: 0px`；`border-right/top/bottom-width: 1px`（CSS 作者值为 `1.5px`；Chrome 在 DPR 1 下会把 `getComputedStyle` 的 border-width 取整为 1px，同页一个 `border:1.5px` 探针 div 实测同样返回 `1px`，属测量取整而非实现偏差）；
+  - `border-style: dashed`，`border-radius: 0px 12px 12px 0px`；
+  - `mask-image` 与 `-webkit-mask-image` 均为 `linear-gradient(to right, rgba(0, 0, 0, 0) 0%, rgb(0, 0, 0) 50%)`。
+- 悬停态（对 zone 派发 `dragenter` + `dragover`，等 300ms 过渡）：`data-over` 出现；`::before` 的 `border-style` 变 `solid`、`border-color: rgb(249, 250, 251)`（当前主题 `--dsw-alias-brand-primary = #f9fafb`）、背景为 brand 12% 混合的 `oklab(0.291…)`；`data-floating` 与 mask 保持不变。
+
+截图（保存于 `docs/verify/`）：
+
+![折叠态 armed：左开虚线框，左侧自然淡出](session-aside-floating-armed.png)
+
+![折叠态 data-over：实线边框 + 淡入的填充，左缘仍无闭合边](session-aside-floating-over.png)
+
+### 2. 左边缘淡出质量（像素级复核）—— 通过
+
+对两张 PNG 用 Pillow 采样（沿上/下边框取 ±6px 窗口的最亮包络；沿 y 采样左缘与右缘）：
+
+- **淡入曲线是线性且渐变到位的**：上方虚线亮度包络从 `x=1100` 的 26 线性升到 `x≈1280` 的 147，此后在 `x=1280…1440` 保持 147；下方同样（28 → 147 后平台）。与 `mask-image` 前 50% 宽度淡入、后 50% 全不透明的定义一致。
+- **右侧是虚线**：`x=1439` 列沿 y 的亮/暗游程为「亮 2–3px / 暗 2px」交替，非实心边。
+- **左缘没有硬边、没有矩形残影**：
+  - armed 态，`x=1090…1120` 的像素与页面背景一致（约 `(21,21,23)`），无竖线、无填充块；
+  - over 态，填充从 `x=1105` 的 `(21,21,23)` 平滑过渡到 `x=1120` 的 `(23,23,25)`，整行未见相邻像素跳变；页面背景在 zone 左缘之外保持原样，没有半透明矩形。
+  - 观感：虚线框与填充从窗口右侧向左自然淡出，左边不闭合，无可见接缝或残影。
+
+### 3. 展开态对照组 —— 通过
+
+右栏已有面板（一个 session-aside 标签，宽 648px）时，对另一个非当前会话行 `dragstart`：
+
+- zone **不带** `data-floating`；
+- zone 自身四边均为 `1px dashed`（作者值 1.5px，闭合），`border-radius: 12px`，`background-color: oklab(0.1966… / 0.72)`（原闭合虚线框的底色）；
+- `::before` 的 `content: none`，无 mask；
+- rect 为 `x=792, y=0, 648×900`，正好覆盖整个右栏面板。
+- 关闭右栏面板后再次 `dragstart`，`data-floating` 重新出现、`::before` 恢复 —— 状态切换可逆，没有残留。
+
+### 4. 拖放与 console —— 通过
+
+- 在折叠态 `data-over` 时派发 `drop`：右栏打开，`paneCount=1`、panel 宽 648px，新标签标题 = 被拖会话标题「dsh 消息回退插件开发」，tab body 渲染 96 个 `conversation.chat.node`；主屏不变。
+- 折叠态截图与拖放期间收集的 `Runtime.consoleAPICalled` / `Runtime.exceptionThrown` / 4xx-5xx 网络响应：0 条；无任何 `session-aside` / `dsh-session-aside` 栈帧或插件 `console.warn`。
+
+### 复现要点
+
+临时驱动（已删除）：headless Chrome 开 CDP 9333，node 控制脚本在 9334 暴露 `/eval`；关键断言即 `getComputedStyle(zone)` 与 `getComputedStyle(zone,'::before')` 的上述字段，像素复核用 Pillow 对截图采样。鉴权细节不落文档。
+
+结论：折叠态「半开放」视觉按预期生效，左缘淡出平滑、无硬边与矩形残影；展开态对照与拖放回归均正常。

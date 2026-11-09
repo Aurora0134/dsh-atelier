@@ -85,7 +85,34 @@ window.__ModuleLoader__.load({
   border-style: solid;
   background: color-mix(in oklab, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-base));
 }
+/* Collapsed column: the surface reads as the panel it will become — open on
+   the left, its fill and frame dissolving as they reach into the window. */
+[data-session-aside-dropzone][data-floating] {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+[data-session-aside-dropzone][data-floating]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1.5px dashed color-mix(in oklab, var(--dsw-alias-brand-primary) 55%, transparent);
+  border-left-width: 0;
+  border-radius: 0 12px 12px 0;
+  background: color-mix(in oklab, var(--dsw-alias-bg-base) 72%, transparent);
+  -webkit-mask-image: linear-gradient(to right, rgb(0 0 0 / 0) 0%, rgb(0 0 0 / 1) 50%);
+  mask-image: linear-gradient(to right, rgb(0 0 0 / 0) 0%, rgb(0 0 0 / 1) 50%);
+  pointer-events: none;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+[data-session-aside-dropzone][data-floating][data-over]::before {
+  border-color: var(--dsw-alias-brand-primary);
+  border-style: solid;
+  background: color-mix(in oklab, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-base));
+}
 [data-session-aside-dropcard] {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -117,7 +144,8 @@ window.__ModuleLoader__.load({
 }
 @media (prefers-reduced-motion: reduce) {
   [data-session-aside-dropzone],
-  [data-session-aside-dropcard] { transition: none; }
+  [data-session-aside-dropcard],
+  [data-session-aside-dropzone][data-floating]::before { transition: none; }
 }
 `;
 
@@ -323,6 +351,11 @@ window.__ModuleLoader__.load({
           left = `${Math.round(rect.left)}px`;
           right = 'auto';
           width = `${Math.round(rect.width)}px`;
+          zone.removeAttribute('data-floating');
+        } else {
+          // No panel to stand on: the zone floats on the edge it will open into,
+          // and draws itself as that panel's open left edge.
+          zone.setAttribute('data-floating', '');
         }
         zone.style.inset = 'auto';
         zone.style.left = left;
