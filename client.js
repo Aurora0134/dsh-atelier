@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
     const FOLD_MOTION_MS = 170;
     const MOTION_EASING = 'cubic-bezier(0.4, 0, 0.2, 1)';
     const FOLLOW_TOLERANCE_PX = 4;
+    const HOLD_TAIL_MS = 60;
     const GESTURE_COOLDOWN_MS = 150;
     const STRUCTURAL_GROWTH_PX = 800;
     const ATTACH_SETTLE_MS = 300;
@@ -37,6 +38,7 @@ window.__ModuleLoader__.load({
 [data-session-motion-viewport] {
   max-height: ${VIEWPORT_MAX_HEIGHT};
   overflow-y: auto;
+  overflow-x: clip;
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
   margin-left: -12px;
@@ -388,42 +390,67 @@ window.__ModuleLoader__.load({
       };
 
       /**
-       * The live status row is pinned to the floor. It rides the same translate
-       * as the flow box, so it gets the opposite one: same duration, same easing,
-       * applied in the same task, which keeps its net displacement at zero.
+       * The live status row holds its place on the floor. Its painted position is
+       * compared with the floor anchor on a frame clock, so any drift — the slide
+       * itself, a follow write that lands a frame later, a row growing above it —
+       * is corrected before that frame is painted.
        */
-      const releasePinned = (record) => {
-        const pinned = record.pinned;
-        if (pinned === null) return;
-        record.pinned = null;
-        try {
-          pinned.anim.cancel();
-        } catch {
-          /* Already finished. */
-        }
-        pinned.row.style.transform = '';
-        pinned.row.removeAttribute('data-session-motion-animating');
+      const floorTopOf = (record, row) => {
+        const port = record.scrollport;
+        const gutter = Number.parseFloat(getComputedStyle(port).paddingBottom) || 0;
+        return port.getBoundingClientRect().top + port.clientHeight - gutter - row.offsetHeight;
       };
 
-      const pinRunningRow = (record, offset) => {
-        const row = record.surface.querySelector('[data-chat-running]');
+      const correctRow = (record) => {
+        const row = record.row;
         if (row === null) return;
-        const from = 'translateY(' + offset.toFixed(2) + 'px)';
-        row.style.transform = from;
-        row.setAttribute('data-session-motion-animating', '');
-        try {
-          record.pinned = {
-            row,
-            anim: row.animate([{ transform: from }, { transform: 'translateY(0px)' }], {
-              duration: FOLLOW_MOTION_MS,
-              easing: MOTION_EASING,
-              fill: 'forwards'
-            })
-          };
-        } catch {
-          row.style.transform = '';
-          row.removeAttribute('data-session-motion-animating');
+        const residual = floorTopOf(record, row) - row.getBoundingClientRect().top;
+        if (Math.abs(residual) < 0.05) return;
+        row.style.transform = 'translateY(' + (translateYOf(row) + residual).toFixed(2) + 'px)';
+      };
+
+      const stopHold = (record) => {
+        if (record.frame !== 0) cancelAnimationFrame(record.frame);
+        record.frame = 0;
+        record.holdUntil = 0;
+        const row = record.row;
+        record.row = null;
+        if (row === null) return;
+        row.style.transform = '';
+        row.removeAttribute('data-session-motion-animating');
+      };
+
+      const holdTick = (record) => {
+        record.frame = 0;
+        const row = record.row;
+        if (row === null) return;
+        if (!row.isConnected) {
+          stopHold(record);
+          return;
         }
+        correctRow(record);
+        const drift = floorTopOf(record, row) - row.getBoundingClientRect().top;
+        if (performance.now() >= record.holdUntil && Math.abs(drift) < 0.5) {
+          stopHold(record);
+          return;
+        }
+        record.frame = requestAnimationFrame(() => holdTick(record));
+      };
+
+      const holdRow = (record) => {
+        const row = record.surface.querySelector('[data-chat-running]');
+        if (row === null) {
+          stopHold(record);
+          return;
+        }
+        if (record.row !== row) {
+          stopHold(record);
+          record.row = row;
+          row.setAttribute('data-session-motion-animating', '');
+        }
+        record.holdUntil = performance.now() + FOLLOW_MOTION_MS + HOLD_TAIL_MS;
+        correctRow(record);
+        if (record.frame === 0) record.frame = requestAnimationFrame(() => holdTick(record));
       };
 
       const clearMotion = (record) => {
@@ -437,7 +464,7 @@ window.__ModuleLoader__.load({
         }
         record.surface.style.transform = '';
         record.surface.removeAttribute('data-session-motion-animating');
-        releasePinned(record);
+        stopHold(record);
       };
 
       const animateGrowth = (record, delta) => {
@@ -460,8 +487,6 @@ window.__ModuleLoader__.load({
           clearMotion(record);
           return;
         }
-        releasePinned(record);
-        pinRunningRow(record, -start);
         const previous = record.anim;
         record.anim = anim;
         if (previous !== null) {
@@ -476,7 +501,6 @@ window.__ModuleLoader__.load({
           record.anim = null;
           surface.style.transform = '';
           surface.removeAttribute('data-session-motion-animating');
-          releasePinned(record);
           try {
             anim.cancel();
           } catch {
@@ -500,14 +524,17 @@ window.__ModuleLoader__.load({
           record.lastClientHeight = clientHeight;
           return;
         }
-        if (delta <= 0 || growth <= 0) return;
         if (performance.now() - record.attachedAt < ATTACH_SETTLE_MS) return;
         if (column.closest('[data-chat-following-tail]') === null) return;
-        if (Math.abs(floor - scrollport.scrollTop) > FOLLOW_TOLERANCE_PX) return;
         /* A native fold batch moves rows and the scrollport on its own clock. */
         if (scrollport.style.overflowAnchor === 'none') return;
-        /* Unrelated scrollport growth (a taller composer) is not content movement. */
-        animateGrowth(record, Math.min(delta, growth));
+        if (growth <= 0) return;
+        if (delta > 0 && Math.abs(floor - scrollport.scrollTop) <= FOLLOW_TOLERANCE_PX) {
+          /* Unrelated scrollport growth (a taller composer) is not content movement. */
+          animateGrowth(record, Math.min(delta, growth));
+        }
+        /* Any growth above the floor may nudge the live status row, animated or not. */
+        holdRow(record);
       };
 
       const attach = (column) => {
@@ -519,13 +546,16 @@ window.__ModuleLoader__.load({
         const record = {
           column,
           surface,
+          scrollport,
           clipped: surface !== column,
           lastFloor: scrollport.scrollHeight - scrollport.clientHeight,
           lastHeight: column.offsetHeight,
           lastClientHeight: scrollport.clientHeight,
           attachedAt: performance.now(),
           anim: null,
-          pinned: null,
+          row: null,
+          frame: 0,
+          holdUntil: 0,
           observer: null
         };
         records.set(column, record);
