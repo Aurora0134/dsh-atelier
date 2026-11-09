@@ -46,13 +46,11 @@ window.__ModuleLoader__.load({
     const zh = {
       'menu.openAside': '在侧边栏打开',
       'drop.label': '在侧边栏打开',
-      'drop.titleFallback': '另一条会话',
       'tab.titleFallback': '会话'
     };
     const en = {
       'menu.openAside': 'Open in sidebar',
       'drop.label': 'Open in sidebar',
-      'drop.titleFallback': 'Another session',
       'tab.titleFallback': 'Session'
     };
 
@@ -116,14 +114,6 @@ window.__ModuleLoader__.load({
 }
 [data-session-aside-dropzone-label] {
   font-weight: 500;
-}
-[data-session-aside-dropzone-title] {
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-session-aside-dropzone],
@@ -215,17 +205,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Open one session beside the session on screen. Duplicate opens of the same
-     * address focus the existing tab instead of adding another.
+     * Open one session beside the session on screen, in the pane the column
+     * already shows: the tab takes that pane's full width instead of splitting
+     * the column in two. Duplicate opens focus the existing tab.
      * @param ctx - Client root carrying the Sidebar controller.
      * @param sessionId - session to show aside.
      */
     function openSessionAside(ctx, sessionId) {
       try {
-        ctx.sidebarRight.openResource(sessionAsideAddress(sessionId), {
-          kind: TAB_KIND,
-          preferNewPane: true
-        });
+        ctx.sidebarRight.openResource(sessionAsideAddress(sessionId), { kind: TAB_KIND });
       } catch (error) {
         console.warn(`${PLUGIN_ID}: cannot open a session in the sidebar`, error);
       }
@@ -312,9 +300,7 @@ window.__ModuleLoader__.load({
       glyph.innerHTML = DROP_GLYPH;
       const label = document.createElement('span');
       label.setAttribute('data-session-aside-dropzone-label', '');
-      const title = document.createElement('span');
-      title.setAttribute('data-session-aside-dropzone-title', '');
-      card.append(glyph, label, title);
+      card.append(glyph, label);
       zone.append(card);
 
       /** Session id the surfaced zone would dock, undefined while idle. */
@@ -366,10 +352,6 @@ window.__ModuleLoader__.load({
         }
         armed = sessionId;
         label.textContent = t('drop.label');
-        const summary = ctx.sessions.list.getSnapshot().byId[sessionId];
-        title.textContent = typeof summary?.displayTitle === 'string' && summary.displayTitle !== ''
-          ? summary.displayTitle
-          : t('drop.titleFallback');
         place();
         zone.setAttribute('data-armed', '');
       };

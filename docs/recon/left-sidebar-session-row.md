@@ -1,7 +1,7 @@
 # 左栏会话行：菜单槽位 / DOM 锚点 / 拖拽现状
 
-> 只读调研产出。取证对象：桌面安装包 `C:\Users\86183\AppData\Local\Programs\DeepSeek Harness\resources\app.asar` 内已解包的 client 插件包，以及包内自带的**生成式 Client Slot 目录**（`dsh-cordis-client-runner`）。
-> 路径均相对工作区根 `C:\Users\86183\Desktop\agent-home\dsh-home`。三个别名：
+> 只读调研产出。取证对象：桌面安装包内的 `app.asar` 解包出的 client 插件包，以及包内自带的**生成式 Client Slot 目录**（`dsh-cordis-client-runner`）。
+> 路径均相对工作区根。三个别名：
 > - `<PKG>` = `.recon/asar/dsh/node_modules/@deepseek-ai/`，例如 `<PKG>dsh-client-ui-workspace/lib/client.js:2276`；
 > - `<RGT>` = `.tmp-recon/asar/dsh/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/`（右栏包在另一处解包），例如 `<RGT>lib/client.js:2234`；
 > - `<BUNDLE>` / `<BUNDLECSS>` = asar 内 `dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets/index-BXV-oxvX.js` / `dsh/node_modules/@deepseek-ai/dsh-web-frontend/dist/assets/index-BNyAYEM7.css`（单行压缩，dockkit / primitives / slots 只存在于这里）。

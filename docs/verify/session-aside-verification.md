@@ -114,3 +114,71 @@
 
 - 拖拽为合成 `DragEvent`，未覆盖系统级拖拽影像与真实 `DataTransfer` 生命周期。
 - 会话正文未抄录；文中仅出现会话标题与 DOM 计数。
+
+## 迭代验证：不拆栏 + 放置提示去标题（2026-11-09 15:14–15:25）
+
+验证对象为 `client.js` 15:13 版本（HMR 后页面已加载新代码；独立 headless Chrome + 自写 CDP 驱动，视口 1440×900，方法同前）。本文 §5 与「附带观察」中“`preferNewPane` 拆成两个 pane、各 324px”的描述是本次改动**之前**的旧行为，本节记录改动后的现状。
+
+起始状态刻意保持干净：新开独立 Chrome profile（localStorage 无历史右栏布局），主会话为新建的「新会话」，右栏初始关闭；先打开一个非当前会话的 session-aside 标签作为“已有标签页”，另一轮用原生「开始」tab 作为“已有标签页”，再执行打开/拖入。
+
+| 检查项 | 结果 |
+| --- | --- |
+| 右栏已有标签时，再打开一个会话：同一 pane、占满栏宽 | 通过 |
+| 拖拽落入同一 pane、不拆栏 | 通过 |
+| 放置提示卡只有图标 +「在侧边栏打开」，无会话标题 | 通过 |
+| 菜单项仅非当前会话出现 | 通过 |
+| 同一会话重复打开只聚焦、不新增标签 | 通过 |
+| 控制台无 session-aside 相关报错 | 通过（另见上游 `present.open` 500） |
+
+### 1. 不拆栏、标签占满栏宽 —— 通过
+
+测量口径：`panel` 取 `[data-sidebar-right-session][data-sidebar-right-panel][data-sidebar-right-open]`；`paneCount` 取 `panel.querySelectorAll('[data-dockkit-pane]').length`；`strips` 取 `[data-dockkit-strip]` 数量；`grid` 取 `[class*=tabLayout]` 的 `grid-template-columns`；`ratio` 取当前 `[data-session-aside-tab]` 的 `getBoundingClientRect().width / panel.width`。
+
+- **菜单路径**：右栏已有会话 A（`session-eb5b9690…`，标题「DSH删除不活跃队友插件」，ratio 0.998）时，从菜单打开会话 B（`session-4a2b3d20…`，标题「制作zcode dynamic workflow插件移植」）：
+  - `paneCount = 1`，`strips = 1`，`paneWidths = [648]`，`panelWidth = 648`；
+  - `grid = minmax(0px, 1fr)`（单栏；改动前为 `0.5fr 0px 0.5fr` 双栏）；
+  - tab strip：`[DSH删除不活跃队友插件, 制作zcode dynamic workflow插件移植]` 同一条 strip，新 tab 为选中态；
+  - 新 tab 内容区宽 647px，`ratio = 0.998 ≥ 0.9`；切回 A 后 A 内容区同样 647px，B 仍可切回。
+- **拖拽路径**：右栏已有原生「开始」tab + 会话 B（各占一条 tab），把会话 C（`session-eb5b9690…`）拖入：
+  - `paneCount = 1`，`paneWidths = [648]`，`strips = 1`，`grid = minmax(0px, 1fr)`，`ratio = 0.998`；
+  - tab strip 变为 `[开始, 制作zcode…, DSH删除不活跃队友插件]`（C 选中），原「开始」tab 仍可切回并渲染 guide 内容，再切回 aside 正常；
+  - 全程未出现第二个 pane / 第二条 strip / 0.5fr 双栏网格。
+
+![右栏单 pane：三个标签同栏，会话标签占满 648px 栏宽（647px 内容区）](session-aside-single-pane.png)
+
+### 2. 放置提示卡只有图标 + 一行文案 —— 通过
+
+对非当前屏会话行派发 `dragstart`（`DataTransfer` 写 `text/plain = sessionId`）后：
+
+- `[data-session-aside-dropcard]` 的 `children.length === 2`；
+  - `children[0]`：`SPAN[data-session-aside-dropzone-glyph]`，内含 1 个 `<svg>`；
+  - `children[1]`：`SPAN[data-session-aside-dropzone-label]`，文本「在侧边栏打开」。
+- `card.textContent === "在侧边栏打开"`；`[data-session-aside-dropzone-title]` 不存在；将页面上 5 个会话标题逐一与卡片文本比对，均不包含。
+- 右栏关闭时提示层位于右侧 340×900（`x=1100`），卡片 116×76，居中显示；文案未溢出。
+
+![拖拽被动态：卡片仅图标 +「在侧边栏打开」，无会话标题](session-aside-dropcard-v2.png)
+
+### 3. 回归 —— 通过
+
+- **菜单项只对非当前会话出现**：主屏切为真实会话 `session-fe40a08f…`（「DSH会话动效与思考视口」）后，其菜单 5 项（置顶 / 重命名 / 分叉 / 归档 / 复制 Session ID），不含「在侧边栏打开」；非当前会话菜单 6 项含该项。
+  说明：空白草稿行「新会话」本身没有任何行操作按钮（原生行为），不能用它做此项断言，故切换到真实会话复核。
+- **重复打开只聚焦**：会话 C 已打开时再次点其菜单项，tab 数保持 3 → 3，C 为选中态，`paneCount` 仍为 1，无重复标签。
+- **当前屏会话不可拖**：对当前屏会话行 `dragstart` 后 `data-armed` 仍为 false（本轮再次复现）。
+- **控制台**：整轮断言期间未出现任何 `session-aside` / `dsh-session-aside` 栈帧或插件 `console.warn`；`dropzone`/`dropcard`/`style` 各仅 1 份，无 HMR 重复注册。
+  观察到一条上游错误：`GET /api/present.open?sessionId=session-4a2b3d20…&seq=1767&index=0` 返回 500。把同一会话切到**主屏**后该 500 同样出现，故属上游 present 资源读取问题，与 session-aside 无关。
+
+### 复现命令
+
+临时驱动（已删除）：`node .tmp-verify-cdp/daemon.mjs` 连接 headless Chrome 的 CDP（9333），监听 `127.0.0.1:9334` 提供 `/eval`、`/shot`、`/logs`；断言表达式与上文测量口径一致，例如：
+
+```js
+// 不拆栏/占满栏宽
+const p = document.querySelector('[data-sidebar-right-session][data-sidebar-right-panel][data-sidebar-right-open]');
+({ paneCount: p.querySelectorAll('[data-dockkit-pane]').length,
+   strips: p.querySelectorAll('[data-dockkit-strip]').length,
+   grid: p.querySelector('[class*=tabLayout]').getAttribute('style'),
+   ratio: p.querySelector('[data-session-aside-tab]').getBoundingClientRect().width
+        / p.getBoundingClientRect().width })
+```
+
+结论：两处改动均按预期生效，未发现新回归。
