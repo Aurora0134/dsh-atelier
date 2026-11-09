@@ -88,6 +88,20 @@ window.__ModuleLoader__.load({
     };
     const motionHeld = () => performance.now() < motionHoldUntil;
 
+    /**
+     * While a reader-initiated open animates, the transcript stays on its follow
+     * floor. The official reading policy restores the position it saved before the
+     * growth burst, which lands mid-animation as a backward jump.
+     */
+    let floorPinnedUntil = 0;
+    const pinFloorFor = (ms) => {
+      floorPinnedUntil = performance.now() + ms;
+    };
+    const releaseFloorPin = () => {
+      floorPinnedUntil = 0;
+    };
+    const floorPinned = () => performance.now() < floorPinnedUntil;
+
     function ReasoningViewport(props) {
       const text = typeof props.text === 'string' ? props.text : '';
       const running = props.running === true;
@@ -319,6 +333,10 @@ window.__ModuleLoader__.load({
             return;
           }
           holdMotion(DISCLOSURE_MOTION_MS + FOLLOW_MOTION_MS);
+          const port = el.closest('[data-conversation-scroll]');
+          if (port !== null && Math.abs(port.scrollTop - (port.scrollHeight - port.clientHeight)) <= FOLLOW_TOLERANCE_PX) {
+            pinFloorFor(DISCLOSURE_MOTION_MS + FOLLOW_MOTION_MS + HOLD_TAIL_MS);
+          }
           let anim;
           try {
             anim = el.animate(
@@ -652,6 +670,14 @@ window.__ModuleLoader__.load({
         holdRow(record);
       };
 
+      /** Hold the tail on its floor while a reader-initiated open owns the layout. */
+      const pinFloor = (record) => {
+        if (!floorPinned()) return;
+        const port = record.scrollport;
+        const floor = port.scrollHeight - port.clientHeight;
+        if (Math.abs(floor - port.scrollTop) > 1) port.scrollTop = floor;
+      };
+
       const attach = (column) => {
         if (records.has(column)) return;
         const scrollport = scrollportOf(column);
@@ -672,7 +698,8 @@ window.__ModuleLoader__.load({
           anchor: null,
           frame: 0,
           holdUntil: 0,
-          observer: null
+          observer: null,
+          onScroll: null
         };
         records.set(column, record);
         column.setAttribute('data-session-motion-tracking', '');
@@ -680,11 +707,14 @@ window.__ModuleLoader__.load({
           if (!disposed) measure(record);
         });
         record.observer.observe(column);
+        record.onScroll = () => pinFloor(record);
+        scrollport.addEventListener('scroll', record.onScroll, { passive: true });
       };
 
       const detach = (record) => {
         records.delete(record.column);
         if (record.observer !== null) record.observer.disconnect();
+        if (record.onScroll !== null) record.scrollport.removeEventListener('scroll', record.onScroll);
         record.column.removeAttribute('data-session-motion-tracking');
         clearMotion(record);
         if (record.clipped) unclipColumn(record.column);
@@ -708,6 +738,7 @@ window.__ModuleLoader__.load({
       };
 
       const interrupt = () => {
+        releaseFloorPin();
         holdMotion(GESTURE_COOLDOWN_MS);
         for (const record of records.values()) clearMotion(record);
       };
