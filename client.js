@@ -15,8 +15,8 @@ window.__ModuleLoader__.load({
     /** Sizes and timings the two behaviours rely on. */
     const VIEWPORT_MAX_HEIGHT = 'min(240px, 35vh)';
     const FADE_SIZE = '20px';
-    const FOLLOW_MOTION_MS = 120;
-    const FOLD_MOTION_MS = 170;
+    const FOLLOW_MOTION_MS = 160;
+    const DISCLOSURE_MOTION_MS = 240;
     const MOTION_EASING = 'cubic-bezier(0.4, 0, 0.2, 1)';
     const FOLLOW_TOLERANCE_PX = 4;
     const HOLD_TAIL_MS = 60;
@@ -76,6 +76,16 @@ window.__ModuleLoader__.load({
     function prefersReducedMotion() {
       return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     }
+
+    /**
+     * Gesture-owned layout motion (a disclosure open, a reader's scroll) owns the
+     * frame; the streaming slide stays out of it until the deadline.
+     */
+    let motionHoldUntil = 0;
+    const holdMotion = (ms) => {
+      motionHoldUntil = performance.now() + ms;
+    };
+    const motionHeld = () => performance.now() < motionHoldUntil;
 
     function ReasoningViewport(props) {
       const text = typeof props.text === 'string' ? props.text : '';
@@ -153,8 +163,9 @@ window.__ModuleLoader__.load({
 
     /**
      * Streaming reasoning rows open themselves and fold back when the block
-     * settles. Users keep the last word: a row they toggled is never changed by
-     * this controller again, and a row they close always closes.
+     * settles. A reader's own toggle animates in both directions. Users keep the
+     * last word: a row they toggled is never changed by this controller again,
+     * and a row they close always closes.
      */
     function installReasoningDisclosure() {
       const touched = new WeakSet();
@@ -239,7 +250,7 @@ window.__ModuleLoader__.load({
         try {
           anim = el.animate(
             [{ height: start + 'px' }, { height: target + 'px' }],
-            { duration: FOLD_MOTION_MS, easing: MOTION_EASING }
+            { duration: DISCLOSURE_MOTION_MS, easing: MOTION_EASING }
           );
         } catch {
           clearFoldStyles(el);
@@ -249,6 +260,56 @@ window.__ModuleLoader__.load({
         const entry = { anim, expectSettled };
         folding.set(el, entry);
         anim.onfinish = () => finishFold(el, entry);
+        anim.oncancel = () => {
+          if (folding.get(el) === entry) {
+            folding.delete(el);
+            clearFoldStyles(el);
+          }
+        };
+      };
+
+      const finishUnfold = (el, entry) => {
+        if (folding.get(el) !== entry) return;
+        folding.delete(el);
+        clearFoldStyles(el);
+      };
+
+      /**
+       * The official toggle mounts the whole body in the frame it commits. Holding
+       * the box at its header height across that write and easing it to the measured
+       * height turns the jump into the reverse of the fold.
+       */
+      const unfoldRow = (el, row) => {
+        /* A running block keeps growing underneath the animation; commit natively. */
+        if (prefersReducedMotion() || el.getAttribute('data-state') === 'running') {
+          clickRow(row);
+          return;
+        }
+        cancelFold(el);
+        const start = el.getBoundingClientRect().height;
+        el.setAttribute('data-session-motion-folding', '');
+        el.style.height = start + 'px';
+        el.style.overflow = 'hidden';
+        clickRow(row);
+        const end = el.scrollHeight;
+        if (!el.hasAttribute('data-expanded') || !(end - start > 1.5)) {
+          clearFoldStyles(el);
+          return;
+        }
+        let anim;
+        try {
+          anim = el.animate(
+            [{ height: start + 'px' }, { height: end + 'px' }],
+            { duration: DISCLOSURE_MOTION_MS, easing: MOTION_EASING }
+          );
+        } catch {
+          clearFoldStyles(el);
+          return;
+        }
+        const entry = { anim, expectSettled: false };
+        folding.set(el, entry);
+        holdMotion(DISCLOSURE_MOTION_MS + FOLLOW_MOTION_MS);
+        anim.onfinish = () => finishUnfold(el, entry);
         anim.oncancel = () => {
           if (folding.get(el) === entry) {
             folding.delete(el);
@@ -293,12 +354,12 @@ window.__ModuleLoader__.load({
           cancelFold(el);
           return;
         }
-        if (!el.hasAttribute('data-expanded')) return;
         const row = disclosureRow(el);
         if (row === null || !row.contains(target)) return;
         event.stopPropagation();
         event.preventDefault();
-        foldRow(el, row, false);
+        if (el.hasAttribute('data-expanded')) foldRow(el, row, false);
+        else unfoldRow(el, row);
       };
       const onUserKey = (event) => {
         if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') onUserToggle(event);
@@ -341,7 +402,6 @@ window.__ModuleLoader__.load({
       let disposed = false;
       let scanScheduled = false;
       let scanFrame = 0;
-      let gestureCooldownUntil = 0;
 
       /* Attached before the reader reaches the floor so the first stream is covered too. */
       const isTranscriptColumn = (column) =>
@@ -489,7 +549,7 @@ window.__ModuleLoader__.load({
       const animateGrowth = (record, delta) => {
         const surface = record.surface;
         if (prefersReducedMotion()) return;
-        if (performance.now() < gestureCooldownUntil) return;
+        if (motionHeld()) return;
         if (delta > STRUCTURAL_GROWTH_PX) return;
         const start = translateYOf(surface) + delta;
         if (!Number.isFinite(start) || start <= 0.5) return;
@@ -614,7 +674,7 @@ window.__ModuleLoader__.load({
       };
 
       const interrupt = () => {
-        gestureCooldownUntil = performance.now() + GESTURE_COOLDOWN_MS;
+        holdMotion(GESTURE_COOLDOWN_MS);
         for (const record of records.values()) clearMotion(record);
       };
       const onWheel = () => interrupt();
