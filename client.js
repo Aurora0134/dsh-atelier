@@ -20,6 +20,7 @@ window.__ModuleLoader__.load({
     const MOTION_EASING = 'cubic-bezier(0.4, 0, 0.2, 1)';
     const FOLLOW_TOLERANCE_PX = 4;
     const HOLD_TAIL_MS = 60;
+    const HOLD_GRACE_MS = 200;
     const GESTURE_COOLDOWN_MS = 150;
     const STRUCTURAL_GROWTH_PX = 800;
     const ATTACH_SETTLE_MS = 300;
@@ -390,23 +391,37 @@ window.__ModuleLoader__.load({
       };
 
       /**
-       * The live status row holds its place on the floor. Its painted position is
-       * compared with the floor anchor on a frame clock, so any drift — the slide
-       * itself, a follow write that lands a frame later, a row growing above it —
-       * is corrected before that frame is painted.
+       * The live status row keeps its resting place while content above it moves.
+       * Its anchor is its own resting bottom edge, never the scrollport floor: the
+       * composer region lives inside the same scroll body, so the transcript ends
+       * well above the floor and a floor anchor would drag the row into that gap —
+       * out of the clipped column, where it is not painted. The bottom edge is the
+       * stable end of the row, so a taller row grows upward instead of drifting.
        */
-      const floorTopOf = (record, row) => {
-        const port = record.scrollport;
-        const gutter = Number.parseFloat(getComputedStyle(port).paddingBottom) || 0;
-        return port.getBoundingClientRect().top + port.clientHeight - gutter - row.offsetHeight;
+      const restBottomOf = (record) => {
+        const row = record.row;
+        if (row === null) return null;
+        const bottom = row.getBoundingClientRect().bottom;
+        return bottom - translateYOf(record.surface) - translateYOf(row);
       };
 
       const correctRow = (record) => {
         const row = record.row;
-        if (row === null) return;
-        const residual = floorTopOf(record, row) - row.getBoundingClientRect().top;
+        if (row === null || record.anchor === null) return;
+        const residual = record.anchor - row.getBoundingClientRect().bottom;
         if (Math.abs(residual) < 0.05) return;
         row.style.transform = 'translateY(' + (translateYOf(row) + residual).toFixed(2) + 'px)';
+      };
+
+      const holdDriftOf = (record) => {
+        const row = record.row;
+        if (row === null || record.anchor === null) return 0;
+        return record.anchor - row.getBoundingClientRect().bottom;
+      };
+
+      const atFollowFloor = (record) => {
+        const port = record.scrollport;
+        return Math.abs(port.scrollTop - (port.scrollHeight - port.clientHeight)) <= FOLLOW_TOLERANCE_PX;
       };
 
       const stopHold = (record) => {
@@ -429,8 +444,8 @@ window.__ModuleLoader__.load({
           return;
         }
         correctRow(record);
-        const drift = floorTopOf(record, row) - row.getBoundingClientRect().top;
-        if (performance.now() >= record.holdUntil && Math.abs(drift) < 0.5) {
+        const now = performance.now();
+        if (now >= record.holdUntil && (Math.abs(holdDriftOf(record)) < 0.5 || now >= record.holdUntil + HOLD_GRACE_MS)) {
           stopHold(record);
           return;
         }
@@ -447,6 +462,10 @@ window.__ModuleLoader__.load({
           stopHold(record);
           record.row = row;
           row.setAttribute('data-session-motion-animating', '');
+        }
+        /* A fresh hold re-reads the resting edge; a follow write still in flight leaves the previous one in charge. */
+        if (record.frame === 0 && (record.anchor === null || atFollowFloor(record))) {
+          record.anchor = restBottomOf(record);
         }
         record.holdUntil = performance.now() + FOLLOW_MOTION_MS + HOLD_TAIL_MS;
         correctRow(record);
@@ -554,6 +573,7 @@ window.__ModuleLoader__.load({
           attachedAt: performance.now(),
           anim: null,
           row: null,
+          anchor: null,
           frame: 0,
           holdUntil: 0,
           observer: null
