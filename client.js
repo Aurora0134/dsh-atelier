@@ -22,6 +22,7 @@ window.__ModuleLoader__.load({
     const HOLD_TAIL_MS = 60;
     const HOLD_GRACE_MS = 200;
     const GESTURE_COOLDOWN_MS = 150;
+    const UNFOLD_WAIT_MS = 600;
     const STRUCTURAL_GROWTH_PX = 800;
     const ATTACH_SETTLE_MS = 300;
     const SCROLL_KEYS = new Set([
@@ -206,6 +207,7 @@ window.__ModuleLoader__.load({
       const finishFold = (el, entry) => {
         if (folding.get(el) !== entry) return;
         folding.delete(el);
+        if (entry.stopWait !== null) entry.stopWait();
         const row = disclosureRow(el);
         const expanded = el.hasAttribute('data-expanded');
         const settled = el.getAttribute('data-state') !== 'running';
@@ -214,15 +216,27 @@ window.__ModuleLoader__.load({
         clearFoldStyles(el);
       };
 
+      /** Drop whatever the entry still owns: a running animation or a pending commit wait. */
+      const releaseEntry = (entry) => {
+        if (entry.stopWait !== null) {
+          entry.stopWait();
+          entry.stopWait = null;
+        }
+        if (entry.anim !== null) {
+          try {
+            entry.anim.cancel();
+          } catch {
+            /* Already finished. */
+          }
+          entry.anim = null;
+        }
+      };
+
       const cancelFold = (el) => {
         const entry = folding.get(el);
         if (entry === undefined) return;
         folding.delete(el);
-        try {
-          entry.anim.cancel();
-        } catch {
-          /* Already finished. */
-        }
+        releaseEntry(entry);
         clearFoldStyles(el);
       };
 
@@ -257,7 +271,7 @@ window.__ModuleLoader__.load({
           clickRow(row);
           return;
         }
-        const entry = { anim, expectSettled };
+        const entry = { anim, expectSettled, stopWait: null };
         folding.set(el, entry);
         anim.onfinish = () => finishFold(el, entry);
         anim.oncancel = () => {
@@ -271,13 +285,14 @@ window.__ModuleLoader__.load({
       const finishUnfold = (el, entry) => {
         if (folding.get(el) !== entry) return;
         folding.delete(el);
+        if (entry.stopWait !== null) entry.stopWait();
         clearFoldStyles(el);
       };
 
       /**
-       * The official toggle mounts the whole body in the frame it commits. Holding
-       * the box at its header height across that write and easing it to the measured
-       * height turns the jump into the reverse of the fold.
+       * The official toggle commits on its own tick, so the mounted height is not
+       * readable at click time. Holding the box at its header height keeps the body
+       * clipped until that write lands, then the same height eases open.
        */
       const unfoldRow = (el, row) => {
         /* A running block keeps growing underneath the animation; commit natively. */
@@ -290,32 +305,51 @@ window.__ModuleLoader__.load({
         el.setAttribute('data-session-motion-folding', '');
         el.style.height = start + 'px';
         el.style.overflow = 'hidden';
-        clickRow(row);
-        const end = el.scrollHeight;
-        if (!el.hasAttribute('data-expanded') || !(end - start > 1.5)) {
-          clearFoldStyles(el);
-          return;
-        }
-        let anim;
-        try {
-          anim = el.animate(
-            [{ height: start + 'px' }, { height: end + 'px' }],
-            { duration: DISCLOSURE_MOTION_MS, easing: MOTION_EASING }
-          );
-        } catch {
-          clearFoldStyles(el);
-          return;
-        }
-        const entry = { anim, expectSettled: false };
+        const entry = { anim: null, expectSettled: false, stopWait: null };
         folding.set(el, entry);
-        holdMotion(DISCLOSURE_MOTION_MS + FOLLOW_MOTION_MS);
-        anim.onfinish = () => finishUnfold(el, entry);
-        anim.oncancel = () => {
-          if (folding.get(el) === entry) {
-            folding.delete(el);
-            clearFoldStyles(el);
+        const grow = () => {
+          if (folding.get(el) !== entry || !el.hasAttribute('data-expanded')) return;
+          if (entry.stopWait !== null) entry.stopWait();
+          /* Read the committed height off the box itself, then pin it back before paint. */
+          el.style.height = '';
+          const end = el.getBoundingClientRect().height;
+          el.style.height = start + 'px';
+          if (!(end - start > 1.5)) {
+            finishUnfold(el, entry);
+            return;
           }
+          holdMotion(DISCLOSURE_MOTION_MS + FOLLOW_MOTION_MS);
+          let anim;
+          try {
+            anim = el.animate(
+              [{ height: start + 'px' }, { height: end + 'px' }],
+              { duration: DISCLOSURE_MOTION_MS, easing: MOTION_EASING }
+            );
+          } catch {
+            finishUnfold(el, entry);
+            return;
+          }
+          entry.anim = anim;
+          anim.onfinish = () => finishUnfold(el, entry);
+          anim.oncancel = () => {
+            if (folding.get(el) === entry) {
+              folding.delete(el);
+              clearFoldStyles(el);
+            }
+          };
         };
+        const observer = new MutationObserver(grow);
+        observer.observe(el, { attributes: true, attributeFilter: ['data-expanded'] });
+        const timer = setTimeout(() => {
+          if (entry.anim === null) cancelFold(el);
+        }, UNFOLD_WAIT_MS);
+        entry.stopWait = () => {
+          observer.disconnect();
+          clearTimeout(timer);
+          entry.stopWait = null;
+        };
+        clickRow(row);
+        grow();
       };
 
       const scan = () => {
