@@ -4,6 +4,9 @@
  * The palette falls back to the boot canvas (`--dsh-boot-bg` is set by the
  * theme bootstrap before this sheet runs) and to the platform colours, so the
  * first painted frame matches the stock boot screen in either theme.
+ * Type follows the shell's own boot wordmark: the text stack, semibold weight
+ * and tracked upper-case setting of that mark, opened to a wider tracking so
+ * the lockup reads as a logotype rather than as body copy.
  * Motion is one timeline: the mark surfaces, then the row opens at the closing
  * bracket while "Harness" rises into the opening; `splash.js` fades the layer
  * out when the workspace is ready.
@@ -18,7 +21,7 @@
   pointer-events: none;
   background: var(--dsh-boot-bg, Canvas);
   color: var(--dsw-alias-label-primary, #0f1115);
-  font-family: Inter, var(
+  font-family: var(
     --dsh-font-family-text,
     var(--dsw-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif)
@@ -37,14 +40,19 @@ body[data-ds-dark-theme] .dsh-splash {
 }
 
 .dsh-splash-word {
+  --dsh-splash-tracking: 0.16em;
+  /* Pull at each end that equalises the optical gap beside the brackets. */
+  --dsh-splash-bracket-pull-start: 0.13em;
+  --dsh-splash-bracket-pull-end: 0.06em;
   display: flex;
   align-items: baseline;
   justify-content: center;
   white-space: nowrap;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.5;
-  letter-spacing: 0.01em;
+  letter-spacing: var(--dsh-splash-tracking);
+  text-transform: uppercase;
   opacity: 0;
   transform: translateY(10px);
   filter: blur(6px);
@@ -99,12 +107,19 @@ body[data-ds-dark-theme] .dsh-splash {
 }
 
 /*
- * The closing bracket's glyph sits inside a wider advance box, so the finished
- * tag reads with a gap before ">". Pull the bracket in by a fraction of an em;
- * the opening state keeps the natural "<DeepSeek>" spacing.
+ * A tracked bracket sits far from the word it wraps: its own side bearings and
+ * one tracking step pile up on top of each other. Pull each bracket in by the
+ * amount that leaves an even optical gap at that end, so the tag reads as one
+ * lockup, and cancel the advance after the closing bracket to keep the row
+ * optically centred.
  */
+.dsh-splash-word > .dsh-splash-text:first-child {
+  margin-right: calc(-1 * var(--dsh-splash-bracket-pull-start));
+}
+
 .dsh-splash-word > .dsh-splash-text:last-child {
-  margin-left: -0.05em;
+  margin-left: calc(-1 * var(--dsh-splash-bracket-pull-end));
+  margin-right: calc(-1 * var(--dsh-splash-tracking));
 }
 
 /* Reduced motion keeps the lockup readable and drops the choreography. */

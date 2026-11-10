@@ -59,7 +59,9 @@
   harness.textContent = 'Harness'
   slot.append(harness)
 
-  word.append(part('\u003cDeepSeek'), slot, part('\u003e'))
+  // The brackets are their own parts so the sheet can tighten the gaps they
+  // leave beside the word; tracking otherwise reads as a hole at either end.
+  word.append(part('\u003c'), part('DeepSeek'), slot, part('\u003e'))
   overlay.append(word)
   document.body.append(overlay)
 
