@@ -25,6 +25,7 @@ window.__ModuleLoader__.load({
     const UNFOLD_WAIT_MS = 600;
     const STRUCTURAL_GROWTH_PX = 800;
     const ATTACH_SETTLE_MS = 300;
+    const READ_INTENT_MS = 600;
     const SCROLL_KEYS = new Set([
       'ArrowUp',
       'ArrowDown',
@@ -125,6 +126,20 @@ window.__ModuleLoader__.load({
         syncEdges();
       }, [syncEdges]);
 
+      /**
+       * Only an input can move the body on the reader's behalf. A reflow (window
+       * or sidebar column resize) moves it too, and must not read as the reader
+       * leaving the tail.
+       */
+      const readerIntentRef = React.useRef(0);
+      const noteReader = React.useCallback(() => {
+        readerIntentRef.current = performance.now();
+      }, []);
+      const readerDriven = React.useCallback(
+        () => performance.now() - readerIntentRef.current < READ_INTENT_MS,
+        []
+      );
+
       React.useEffect(() => {
         if (running) followingRef.current = true;
       }, [running]);
@@ -134,25 +149,53 @@ window.__ModuleLoader__.load({
         else syncEdges();
       }, [text, running, pinToBottom, syncEdges]);
 
+      React.useEffect(() => {
+        const el = bodyRef.current;
+        if (el === null || typeof ResizeObserver !== 'function') return undefined;
+        const observer = new ResizeObserver(() => {
+          if (followingRef.current) pinToBottom();
+          else syncEdges();
+        });
+        observer.observe(el);
+        if (el.firstElementChild !== null) observer.observe(el.firstElementChild);
+        return () => observer.disconnect();
+      }, [pinToBottom, syncEdges]);
+
       const onScroll = React.useCallback(() => {
         const el = bodyRef.current;
         if (el === null) return;
         const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_TOLERANCE_PX;
-        followingRef.current = atBottom;
-        if (atBottom) el.removeAttribute('data-session-motion-read');
-        else el.setAttribute('data-session-motion-read', '');
+        if (atBottom) {
+          followingRef.current = true;
+          el.removeAttribute('data-session-motion-read');
+          syncEdges();
+          return;
+        }
+        if (!readerDriven()) {
+          // A reflow moved the body away from the tail: the reader is still
+          // following it, so put it back instead of reading this as a scroll.
+          if (followingRef.current) pinToBottom();
+          else syncEdges();
+          return;
+        }
+        followingRef.current = false;
+        el.setAttribute('data-session-motion-read', '');
         syncEdges();
-      }, [syncEdges]);
+      }, [pinToBottom, readerDriven, syncEdges]);
 
       const onWheel = React.useCallback((event) => {
+        noteReader();
         if (event.deltaY < 0) followingRef.current = false;
-      }, []);
+      }, [noteReader]);
       const onTouchStart = React.useCallback(() => {
+        noteReader();
         followingRef.current = false;
-      }, []);
+      }, [noteReader]);
       const onKeyDown = React.useCallback((event) => {
-        if (SCROLL_KEYS.has(event.key)) followingRef.current = false;
-      }, []);
+        if (!SCROLL_KEYS.has(event.key)) return;
+        noteReader();
+        followingRef.current = false;
+      }, [noteReader]);
 
       if (typeof renderFactorySlot !== 'function') return null;
 
@@ -166,6 +209,7 @@ window.__ModuleLoader__.load({
           onScroll,
           onWheel,
           onTouchStart,
+          onPointerDown: noteReader,
           onKeyDown
         },
         React.createElement(
