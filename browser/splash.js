@@ -2,10 +2,15 @@
  * Opening brand sequence for the DSH shell.
  *
  * Runs from the index body before the shell mounts. It covers the stock boot
- * card, plays the mark sequence — "<DeepSeek>" surfaces, the row opens at the
- * closing bracket, "Harness" rises into the opening — and fades the layer out
- * once the application is on stage. A boot failure cancels the sequence so the
- * shell's own diagnostics stay reachable.
+ * card, plays the mark sequence — the whale and the "deepseek" wordmark
+ * surface, the row opens at the badge seam, the HARNESS badge rises into the
+ * opening — and fades the layer out once the application is on stage. A boot
+ * failure cancels the sequence so the shell's own diagnostics stay reachable.
+ *
+ * The mark is the shell's own sidebar lockup, split at the badge: one copy of
+ * the wordmark clipped to the whale plus "deepseek", another clipped to the
+ * badge. Both use the app's vector art, so the splash draws the same shapes as
+ * the sidebar instead of approximating the brand in a font.
  */
 ;(() => {
   'use strict'
@@ -20,7 +25,18 @@
   const APP_ROOT_ID = 'root'
   const GUARD = '__dshSplashMounted'
 
-  /** Split and harness motion end, plus the hold before the hand-off (ms). */
+  /**
+   * Split geometry in the wordmark's own units (its viewBox is `26 0 156 24`):
+   * the letters run to x = 121.6 and the badge pill starts at x = 129.3.
+   */
+  const LEFT_VIEW_BOX = '26.85 0 94.75 24'
+  const BADGE_VIEW_BOX = '129.3 0 52.1 24'
+
+  /** Vector art, substituted by the Host half from `browser/*.svg`. */
+  const WHALE_SVG = '__DSH_SPLASH_WHALE__'
+  const WORDMARK_SVG = '__DSH_SPLASH_WORDMARK__'
+
+  /** Split and badge motion end, plus the hold before the hand-off (ms). */
   const REVEAL_AFTER = 460 + 760 + 520
   /** Bounded wait for a workspace that never mounts; the stock boot screen returns. */
   const GIVE_UP_AFTER = 15000
@@ -37,51 +53,46 @@
   const rootAtStart = document.getElementById(APP_ROOT_ID)
   if (bootAtStart === null && rootAtStart !== null && rootAtStart.childElementCount > 0) return
 
-  const overlay = document.createElement('div')
-  overlay.className = OVERLAY_CLASS
-  overlay.setAttribute('aria-hidden', 'true')
-
-  const word = document.createElement('div')
-  word.className = `${OVERLAY_CLASS}-word`
-
-  const part = (text) => {
-    const span = document.createElement('span')
-    span.className = `${OVERLAY_CLASS}-text`
-    span.textContent = text
-    return span
+  /** Parse markup into its single root element; the template keeps the SVG namespace. */
+  const parseSvg = (markup) => {
+    const template = document.createElement('template')
+    template.innerHTML = markup
+    return template.content.firstElementChild
   }
+
+  /**
+   * The badge copy shares the wordmark's clip ids, so suffix them and point the
+   * knockout fills at the splash's own canvas colour instead of the app token.
+   */
+  const badgeCopy = (markup) => markup
+    .replace(/id="([^"]+)"/g, (_, id) => `id="${id}-badge"`)
+    .replace(/url\(#([^)]+)\)/g, (_, id) => `url(#${id}-badge)`)
+    .replaceAll('var(--dsw-alias-label-primary-inverted)', 'var(--dsh-splash-inverted)')
+
+  const whale = parseSvg(WHALE_SVG)
+  whale.setAttribute('class', `${OVERLAY_CLASS}-whale`)
+
+  const wordmark = parseSvg(WORDMARK_SVG)
+  wordmark.setAttribute('class', `${OVERLAY_CLASS}-mark`)
+  wordmark.setAttribute('viewBox', LEFT_VIEW_BOX)
+
+  const badge = parseSvg(badgeCopy(WORDMARK_SVG))
+  badge.setAttribute('class', `${OVERLAY_CLASS}-badge`)
+  badge.setAttribute('viewBox', BADGE_VIEW_BOX)
 
   const slot = document.createElement('span')
   slot.className = `${OVERLAY_CLASS}-slot`
+  slot.append(badge)
 
-  const harness = document.createElement('span')
-  harness.className = `${OVERLAY_CLASS}-harness`
-  harness.textContent = 'Harness'
-  slot.append(harness)
+  const word = document.createElement('div')
+  word.className = `${OVERLAY_CLASS}-word`
+  word.append(whale, wordmark, slot)
 
-  // The brackets are their own parts so the sheet can tighten the gaps they
-  // leave beside the word; tracking otherwise reads as a hole at either end.
-  word.append(part('\u003c'), part('DeepSeek'), slot, part('\u003e'))
+  const overlay = document.createElement('div')
+  overlay.className = OVERLAY_CLASS
+  overlay.setAttribute('aria-hidden', 'true')
   overlay.append(word)
   document.body.append(overlay)
-
-  // The gap is exactly one word space plus the new word, measured in the live font.
-  const wordStyle = getComputedStyle(word)
-  let space = (Number.parseFloat(wordStyle.fontSize) || 18) * 0.26
-  try {
-    const canvas = document.createElement('canvas')
-    const context = canvas.getContext('2d')
-    if (context !== null) {
-      context.font = `${wordStyle.fontStyle} ${wordStyle.fontWeight} ${wordStyle.fontSize} ${wordStyle.fontFamily}`
-      const measured = context.measureText(' ').width
-      if (Number.isFinite(measured) && measured > 0) space = measured
-    }
-  } catch {
-    // keep the font-size estimate
-  }
-  const harnessWidth = Math.max(harness.getBoundingClientRect().width, harness.scrollWidth)
-  word.style.setProperty('--dsh-splash-space', `${space.toFixed(2)}px`)
-  word.style.setProperty('--dsh-splash-slot-width', `${Math.ceil(harnessWidth + space)}px`)
 
   let mounted = false
   let started = false

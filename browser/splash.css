@@ -4,15 +4,20 @@
  * The palette falls back to the boot canvas (`--dsh-boot-bg` is set by the
  * theme bootstrap before this sheet runs) and to the platform colours, so the
  * first painted frame matches the stock boot screen in either theme.
- * Type follows the shell's own boot wordmark: the text stack, semibold weight
- * and tracked upper-case setting of that mark, opened to a wider tracking so
- * the lockup reads as a logotype rather than as body copy.
- * Motion is one timeline: the mark surfaces, then the row opens at the closing
- * bracket while "Harness" rises into the opening; `splash.js` fades the layer
- * out when the workspace is ready.
+ *
+ * The mark is the shell's own sidebar brand — whale, "deepseek" wordmark and
+ * HARNESS badge — carried as the app's vector art. The overlay font size is the
+ * lockup height and every part is sized in em against it, so the splash scales
+ * as one piece.
+ * Motion is one timeline: the lockup surfaces, the row opens at the badge seam
+ * while the badge rises into it; `splash.js` fades the layer out when the
+ * workspace is ready.
  */
 
 .dsh-splash {
+  --dsh-splash-mark-height: 24px;
+  /* The badge letters are knocked out of the pill, so they take the canvas. */
+  --dsh-splash-inverted: var(--dsh-boot-bg, Canvas);
   position: fixed;
   inset: 0;
   z-index: 2147483000;
@@ -21,12 +26,7 @@
   pointer-events: none;
   background: var(--dsh-boot-bg, Canvas);
   color: var(--dsw-alias-label-primary, #0f1115);
-  font-family: var(
-    --dsh-font-family-text,
-    var(--dsw-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-      "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif)
-  );
-  -webkit-font-smoothing: antialiased;
+  font-size: var(--dsh-splash-mark-height);
   opacity: 1;
   transition: opacity 420ms cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -40,19 +40,9 @@ body[data-ds-dark-theme] .dsh-splash {
 }
 
 .dsh-splash-word {
-  --dsh-splash-tracking: 0.16em;
-  /* Pull at each end that equalises the optical gap beside the brackets. */
-  --dsh-splash-bracket-pull-start: 0.13em;
-  --dsh-splash-bracket-pull-end: 0.06em;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
-  white-space: nowrap;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.5;
-  letter-spacing: var(--dsh-splash-tracking);
-  text-transform: uppercase;
   opacity: 0;
   transform: translateY(10px);
   filter: blur(6px);
@@ -69,31 +59,48 @@ body[data-ds-dark-theme] .dsh-splash {
   filter: blur(0);
 }
 
+/* Whale icon: 24 x 17.658 in the sidebar lockup. */
+.dsh-splash-whale {
+  display: block;
+  width: 1em;
+  height: 0.7358em;
+}
+
+/* "deepseek" letters: the wordmark cropped at the badge seam. */
+.dsh-splash-mark {
+  display: block;
+  margin-left: 0.2083em; /* 5 / 24 — the sidebar gap between whale and wordmark */
+  width: 3.9479em; /* 94.75 / 24 */
+  height: 1em;
+}
+
 /*
- * Width zero keeps the mark tight; opening it to the measured
- * `space + "Harness"` inserts the gap between the two halves. The easing is
- * slow-fast-slow with a steep middle: control points pull both shoulders in.
+ * Width zero keeps the wordmark tight; opening it to the sidebar's gap plus the
+ * badge inserts the opening the badge rises into. The easing is slow-fast-slow
+ * with a steep middle: control points pull both shoulders in.
  */
 .dsh-splash-slot {
   position: relative;
   flex: 0 0 auto;
-  display: inline-block;
+  display: block;
   width: 0;
   overflow: hidden;
   transition: width 760ms cubic-bezier(0.85, 0, 0.15, 1) 460ms;
 }
 
 .dsh-splash-word.is-open .dsh-splash-slot {
-  width: var(--dsh-splash-slot-width, 0px);
+  width: 2.4917em; /* (7.7 gap + 52.1 badge) / 24 */
 }
 
 /*
- * "Harness" waits below its seat and rises while the gap opens. The slot clips
- * it, so the word emerges from the baseline instead of flying over the row.
+ * The badge waits below its seat and rises while the seam opens; the slot clips
+ * it, so the pill emerges from the baseline instead of flying over the row.
  */
-.dsh-splash-harness {
-  display: inline-block;
-  padding-left: var(--dsh-splash-space, 0px);
+.dsh-splash-badge {
+  display: block;
+  width: 2.1708em; /* 52.1 / 24 */
+  height: 1em;
+  padding-left: 0.3208em; /* 7.7 / 24 — the gap before the pill */
   opacity: 0;
   transform: translateY(0.62em);
   transition:
@@ -101,25 +108,9 @@ body[data-ds-dark-theme] .dsh-splash {
     transform 640ms cubic-bezier(0.16, 0.84, 0.24, 1) 620ms;
 }
 
-.dsh-splash-word.is-open .dsh-splash-harness {
+.dsh-splash-word.is-open .dsh-splash-badge {
   opacity: 1;
   transform: translateY(0);
-}
-
-/*
- * A tracked bracket sits far from the word it wraps: its own side bearings and
- * one tracking step pile up on top of each other. Pull each bracket in by the
- * amount that leaves an even optical gap at that end, so the tag reads as one
- * lockup, and cancel the advance after the closing bracket to keep the row
- * optically centred.
- */
-.dsh-splash-word > .dsh-splash-text:first-child {
-  margin-right: calc(-1 * var(--dsh-splash-bracket-pull-start));
-}
-
-.dsh-splash-word > .dsh-splash-text:last-child {
-  margin-left: calc(-1 * var(--dsh-splash-bracket-pull-end));
-  margin-right: calc(-1 * var(--dsh-splash-tracking));
 }
 
 /* Reduced motion keeps the lockup readable and drops the choreography. */
@@ -129,7 +120,7 @@ body[data-ds-dark-theme] .dsh-splash {
 
 .dsh-splash.is-reduced .dsh-splash-word,
 .dsh-splash.is-reduced .dsh-splash-slot,
-.dsh-splash.is-reduced .dsh-splash-harness {
+.dsh-splash.is-reduced .dsh-splash-badge {
   transition-duration: 1ms;
   transition-delay: 0ms;
 }
