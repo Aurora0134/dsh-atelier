@@ -146,6 +146,9 @@
   giveUpTimer = setTimeout(() => retire(), GIVE_UP_AFTER)
 
   if (reduceMotion) {
+    // No choreography to protect from a hidden window, and the mark still holds
+    // for its short beat before the hand-off.
+    started = true
     overlay.classList.add(READY_CLASS, REDUCED_CLASS)
     word.classList.add(OPEN_CLASS)
     revealTimer = setTimeout(reveal, 900)
