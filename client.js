@@ -136,7 +136,14 @@ window.__ModuleLoader__.load({
         function ensure() {
           frame = 0;
           const nextAnchor = document.querySelector('[data-slot="sidebar.settings"]');
-          const nextTrigger = nextAnchor === null ? null : nextAnchor.querySelector('button[aria-haspopup="dialog"]');
+          /*
+           * The seat's row button opens a popup: a settings dialog in older
+           * builds, the account menu in the current one. Match the popup marker
+           * instead of one value, and fall back to the row's first button so a
+           * later control change cannot silence the mount again.
+           */
+          const nextTrigger = nextAnchor === null ? null
+            : (nextAnchor.querySelector('button[aria-haspopup]') ?? nextAnchor.querySelector('button'));
           if (nextAnchor === null || nextTrigger === null) return;
           let nextRow = nextTrigger;
           while (nextRow.parentElement !== null && nextRow.parentElement !== nextAnchor) nextRow = nextRow.parentElement;
