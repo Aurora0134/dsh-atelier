@@ -1,5 +1,0 @@
-# The row name must equal this package's name: the Host reads that package's
-# `dsh.client` declaration before serving the browser half.
-- insert:
-    - id: theme-toggle
-      name: dsh-theme-toggle
