@@ -63,6 +63,7 @@ window.__ModuleLoader__.load({
   min-height: 0;
 }
 [data-session-aside-dropzone] {
+  --aside-guide-accent: var(--dsw-alias-state-business-primary);
   position: fixed;
   z-index: 2147483000;
   display: none;
@@ -70,9 +71,9 @@ window.__ModuleLoader__.load({
   align-items: center;
   justify-content: center;
   padding: 20px;
-  border: 1.5px dashed color-mix(in oklab, var(--dsw-alias-brand-primary) 55%, transparent);
+  border: 1.5px dashed var(--aside-guide-accent);
   border-radius: 12px;
-  background: color-mix(in oklab, var(--dsw-alias-bg-base) 72%, transparent);
+  background: color-mix(in oklab, var(--aside-guide-accent) 12%, color-mix(in oklab, var(--dsw-alias-bg-base) 72%, transparent));
   pointer-events: none;
   transition: background-color 120ms ease, border-color 120ms ease;
 }
@@ -81,12 +82,14 @@ window.__ModuleLoader__.load({
   pointer-events: auto;
 }
 [data-session-aside-dropzone][data-over] {
-  border-color: var(--dsw-alias-brand-primary);
   border-style: solid;
-  background: color-mix(in oklab, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-base));
+  border-width: 2px;
+  background: color-mix(in oklab, var(--aside-guide-accent) 18%, color-mix(in oklab, var(--dsw-alias-bg-base) 76%, transparent));
 }
 /* Collapsed column: the surface reads as the panel it will become — open on
-   the left, its fill and frame dissolving as they reach into the window. */
+   the left, its fill and frame dissolving as they reach into the window. The
+   accent keeps the surface a different colour from the page it floats over,
+   which is what makes a half-transparent wash read as a destination at all. */
 [data-session-aside-dropzone][data-floating] {
   border: 0;
   border-radius: 0;
@@ -96,19 +99,20 @@ window.__ModuleLoader__.load({
   content: '';
   position: absolute;
   inset: 0;
-  border: 1.5px dashed color-mix(in oklab, var(--dsw-alias-brand-primary) 55%, transparent);
+  border: 1.5px dashed var(--aside-guide-accent);
   border-left-width: 0;
   border-radius: 0 12px 12px 0;
-  background: color-mix(in oklab, var(--dsw-alias-bg-base) 72%, transparent);
-  -webkit-mask-image: linear-gradient(to right, rgb(0 0 0 / 0) 0%, rgb(0 0 0 / 1) 50%);
-  mask-image: linear-gradient(to right, rgb(0 0 0 / 0) 0%, rgb(0 0 0 / 1) 50%);
+  background: color-mix(in oklab, var(--aside-guide-accent) 12%, color-mix(in oklab, var(--dsw-alias-bg-base) 72%, transparent));
+  -webkit-mask-image: linear-gradient(to right, rgb(0 0 0 / 0) 0%, rgb(0 0 0 / 0.35) 12%, rgb(0 0 0 / 1) 38%);
+  mask-image: linear-gradient(to right, rgb(0 0 0 / 0) 0%, rgb(0 0 0 / 0.35) 12%, rgb(0 0 0 / 1) 38%);
   pointer-events: none;
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 [data-session-aside-dropzone][data-floating][data-over]::before {
-  border-color: var(--dsw-alias-brand-primary);
   border-style: solid;
-  background: color-mix(in oklab, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-base));
+  border-width: 2px;
+  border-left-width: 0;
+  background: color-mix(in oklab, var(--aside-guide-accent) 18%, color-mix(in oklab, var(--dsw-alias-bg-base) 76%, transparent));
 }
 [data-session-aside-dropcard] {
   position: relative;
@@ -119,25 +123,22 @@ window.__ModuleLoader__.load({
   gap: 6px;
   max-width: 100%;
   padding: 14px 18px;
-  border: 1px solid var(--dsw-alias-border-l1);
+  border: 1px solid color-mix(in oklab, var(--aside-guide-accent) 32%, transparent);
   border-radius: 10px;
   background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-secondary);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.12);
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
   text-align: center;
   transition: border-color 120ms ease, color 120ms ease;
 }
 [data-session-aside-dropzone][data-over] [data-session-aside-dropcard] {
-  border-color: color-mix(in oklab, var(--dsw-alias-brand-primary) 60%, transparent);
-  color: var(--dsw-alias-label-primary);
+  border-color: color-mix(in oklab, var(--aside-guide-accent) 60%, transparent);
 }
 [data-session-aside-dropzone-glyph] {
   display: flex;
-  color: var(--dsw-alias-label-secondary);
-}
-[data-session-aside-dropzone][data-over] [data-session-aside-dropzone-glyph] {
-  color: var(--dsw-alias-brand-primary);
+  color: var(--aside-guide-accent);
 }
 [data-session-aside-dropzone-label] {
   font-weight: 500;
