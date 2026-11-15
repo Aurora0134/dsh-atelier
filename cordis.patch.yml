@@ -1,0 +1,5 @@
+# The one row this bundle inserts. The row name must equal the package name so the
+# Host resolves the module and the Plugin Manager lists it as this bundle's.
+- insert:
+    - id: atelier
+      name: dsh-atelier
