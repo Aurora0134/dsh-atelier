@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session Motion",
+    "description": "Smooths how streaming output moves the conversation and keeps reasoning inside a bounded, scrollable view."
+  }
+}

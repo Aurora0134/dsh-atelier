@@ -1,0 +1,849 @@
+/**
+ * Browser half of the bundle. The Host serves this file as
+ * `/plugins/dsh-session-motion/client.js` and the page registers it as a lazy
+ * module factory; the registration id must equal the package name so the boot
+ * graph row and this factory line up.
+ */
+window.__ModuleLoader__.load({
+  id: 'dsh-session-motion',
+  factory(require) {
+    const React = require('react');
+
+    const PLUGIN_ID = 'dsh-session-motion';
+    const ROW_NAME = 'session-motion';
+
+    /** Sizes and timings the two behaviours rely on. */
+    const VIEWPORT_MAX_HEIGHT = 'min(240px, 35vh)';
+    const FADE_SIZE = '20px';
+    const FOLLOW_MOTION_MS = 160;
+    const DISCLOSURE_MOTION_MS = 240;
+    const MOTION_EASING = 'cubic-bezier(0.4, 0, 0.2, 1)';
+    const FOLLOW_TOLERANCE_PX = 4;
+    const HOLD_TAIL_MS = 60;
+    const HOLD_GRACE_MS = 200;
+    const GESTURE_COOLDOWN_MS = 150;
+    const UNFOLD_WAIT_MS = 600;
+    const STRUCTURAL_GROWTH_PX = 800;
+    const ATTACH_SETTLE_MS = 300;
+    const READ_INTENT_MS = 600;
+    const SCROLL_KEYS = new Set([
+      'ArrowUp',
+      'ArrowDown',
+      'PageUp',
+      'PageDown',
+      'Home',
+      'End',
+      ' '
+    ]);
+
+    /** Reasoning viewport: a bounded scroll surface around the official body. */
+    const CSS = `
+[data-session-motion-viewport] {
+  max-height: ${VIEWPORT_MAX_HEIGHT};
+  overflow-y: auto;
+  overflow-x: clip;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  margin-left: -12px;
+  padding-left: 11px;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+[data-session-motion-viewport][data-session-motion-fade-top] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 ${FADE_SIZE} 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 ${FADE_SIZE} 100%);
+}
+[data-session-motion-viewport][data-session-motion-fade-bottom] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0 calc(100% - ${FADE_SIZE}), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0 calc(100% - ${FADE_SIZE}), transparent 100%);
+}
+[data-session-motion-viewport][data-session-motion-fade-top][data-session-motion-fade-bottom] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 ${FADE_SIZE} calc(100% - ${FADE_SIZE}), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 ${FADE_SIZE} calc(100% - ${FADE_SIZE}), transparent 100%);
+}
+[data-session-motion-animating] {
+  will-change: transform;
+}
+[data-session-motion-folding] {
+  will-change: height;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-session-motion-viewport] { scroll-behavior: auto; }
+  [data-session-motion-animating] { will-change: auto; }
+  [data-session-motion-folding] { will-change: auto; }
+}
+`;
+
+    const AT_REST = { top: false, bottom: false };
+
+    function prefersReducedMotion() {
+      return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    /**
+     * Gesture-owned layout motion (a disclosure open, a reader's scroll) owns the
+     * frame; the streaming slide stays out of it until the deadline.
+     */
+    let motionHoldUntil = 0;
+    const holdMotion = (ms) => {
+      motionHoldUntil = performance.now() + ms;
+    };
+    const motionHeld = () => performance.now() < motionHoldUntil;
+
+    /**
+     * While a reader-initiated open animates, the transcript stays on its follow
+     * floor. The official reading policy restores the position it saved before the
+     * growth burst, which lands mid-animation as a backward jump.
+     */
+    let floorPinnedUntil = 0;
+    const pinFloorFor = (ms) => {
+      floorPinnedUntil = performance.now() + ms;
+    };
+    const releaseFloorPin = () => {
+      floorPinnedUntil = 0;
+    };
+    const floorPinned = () => performance.now() < floorPinnedUntil;
+
+    function ReasoningViewport(props) {
+      const text = typeof props.text === 'string' ? props.text : '';
+      const running = props.running === true;
+      const renderFactorySlot = props.renderFactorySlot;
+      const bodyRef = React.useRef(null);
+      const followingRef = React.useRef(running);
+      const [edges, setEdges] = React.useState(AT_REST);
+
+      const syncEdges = React.useCallback(() => {
+        const el = bodyRef.current;
+        if (el === null) return;
+        const top = el.scrollTop > 1;
+        const bottom = el.scrollHeight - el.scrollTop - el.clientHeight > 2;
+        setEdges((current) => (current.top === top && current.bottom === bottom ? current : { top, bottom }));
+      }, []);
+
+      const pinToBottom = React.useCallback(() => {
+        const el = bodyRef.current;
+        if (el === null) return;
+        el.scrollTop = el.scrollHeight;
+        syncEdges();
+      }, [syncEdges]);
+
+      /**
+       * Only an input can move the body on the reader's behalf. A reflow (window
+       * or sidebar column resize) moves it too, and must not read as the reader
+       * leaving the tail.
+       */
+      const readerIntentRef = React.useRef(0);
+      const noteReader = React.useCallback(() => {
+        readerIntentRef.current = performance.now();
+      }, []);
+      const readerDriven = React.useCallback(
+        () => performance.now() - readerIntentRef.current < READ_INTENT_MS,
+        []
+      );
+
+      React.useEffect(() => {
+        if (running) followingRef.current = true;
+      }, [running]);
+
+      React.useLayoutEffect(() => {
+        if (followingRef.current) pinToBottom();
+        else syncEdges();
+      }, [text, running, pinToBottom, syncEdges]);
+
+      React.useEffect(() => {
+        const el = bodyRef.current;
+        if (el === null || typeof ResizeObserver !== 'function') return undefined;
+        const observer = new ResizeObserver(() => {
+          if (followingRef.current) pinToBottom();
+          else syncEdges();
+        });
+        observer.observe(el);
+        if (el.firstElementChild !== null) observer.observe(el.firstElementChild);
+        return () => observer.disconnect();
+      }, [pinToBottom, syncEdges]);
+
+      const onScroll = React.useCallback(() => {
+        const el = bodyRef.current;
+        if (el === null) return;
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_TOLERANCE_PX;
+        if (atBottom) {
+          followingRef.current = true;
+          el.removeAttribute('data-session-motion-read');
+          syncEdges();
+          return;
+        }
+        if (!readerDriven()) {
+          // A reflow moved the body away from the tail: the reader is still
+          // following it, so put it back instead of reading this as a scroll.
+          if (followingRef.current) pinToBottom();
+          else syncEdges();
+          return;
+        }
+        followingRef.current = false;
+        el.setAttribute('data-session-motion-read', '');
+        syncEdges();
+      }, [pinToBottom, readerDriven, syncEdges]);
+
+      const onWheel = React.useCallback((event) => {
+        noteReader();
+        if (event.deltaY < 0) followingRef.current = false;
+      }, [noteReader]);
+      const onTouchStart = React.useCallback(() => {
+        noteReader();
+        followingRef.current = false;
+      }, [noteReader]);
+      const onKeyDown = React.useCallback((event) => {
+        if (!SCROLL_KEYS.has(event.key)) return;
+        noteReader();
+        followingRef.current = false;
+      }, [noteReader]);
+
+      if (typeof renderFactorySlot !== 'function') return null;
+
+      return React.createElement(
+        'div',
+        {
+          'data-session-motion-viewport': '',
+          'data-session-motion-fade-top': edges.top ? '' : undefined,
+          'data-session-motion-fade-bottom': edges.bottom ? '' : undefined,
+          ref: bodyRef,
+          onScroll,
+          onWheel,
+          onTouchStart,
+          onPointerDown: noteReader,
+          onKeyDown
+        },
+        React.createElement(
+          'div',
+          { 'data-session-motion-viewport-content': '' },
+          renderFactorySlot('conversation.chat.reasoning.content', { text, running })
+        )
+      );
+    }
+
+    /**
+     * Streaming reasoning rows open themselves and fold back when the block
+     * settles. A reader's own toggle animates in both directions. Users keep the
+     * last word: a row they toggled is never changed by this controller again,
+     * and a row they close always closes.
+     */
+    function installReasoningDisclosure() {
+      const touched = new WeakSet();
+      const openedByPlugin = new WeakSet();
+      /** Rows whose collapse animation this plugin owns until its toggle lands. */
+      const folding = new Map();
+      let autoClicking = false;
+      let scheduled = false;
+      let frame = 0;
+
+      const isVisible = (el) => el.isConnected && el.getClientRects().length > 0 && el.closest('[hidden]') === null;
+
+      const clickRow = (row) => {
+        autoClicking = true;
+        try {
+          row.click();
+        } catch {
+          /* A detached row needs no action. */
+        } finally {
+          autoClicking = false;
+        }
+      };
+
+      const disclosureRow = (el) => el.querySelector('[data-disclosure-header] > [data-disclosure-row]');
+
+      /** The collapsed row keeps only its header, so that height is the fold target. */
+      const headerHeight = (el) => {
+        const header = el.querySelector('[data-disclosure-header]');
+        return header === null ? 0 : header.getBoundingClientRect().height;
+      };
+
+      const clearFoldStyles = (el) => {
+        el.style.height = '';
+        el.style.overflow = '';
+        el.removeAttribute('data-session-motion-folding');
+      };
+
+      const finishFold = (el, entry) => {
+        if (folding.get(el) !== entry) return;
+        folding.delete(el);
+        if (entry.stopWait !== null) entry.stopWait();
+        const row = disclosureRow(el);
+        const expanded = el.hasAttribute('data-expanded');
+        const settled = el.getAttribute('data-state') !== 'running';
+        const keepOpen = entry.expectSettled && (!expanded || !settled);
+        if (!keepOpen && expanded && el.isConnected && row !== null) clickRow(row);
+        clearFoldStyles(el);
+      };
+
+      /** Drop whatever the entry still owns: a running animation or a pending commit wait. */
+      const releaseEntry = (entry) => {
+        if (entry.stopWait !== null) {
+          entry.stopWait();
+          entry.stopWait = null;
+        }
+        if (entry.anim !== null) {
+          try {
+            entry.anim.cancel();
+          } catch {
+            /* Already finished. */
+          }
+          entry.anim = null;
+        }
+      };
+
+      const cancelFold = (el) => {
+        const entry = folding.get(el);
+        if (entry === undefined) return;
+        folding.delete(el);
+        releaseEntry(entry);
+        clearFoldStyles(el);
+      };
+
+      /**
+       * Shrink the row to its header first, then commit the native toggle. The
+       * official disclosure unmounts its body on collapse, so animating after the
+       * toggle would collapse an empty box instead of the visible content.
+       */
+      const foldRow = (el, row, expectSettled) => {
+        if (el.closest('[data-chat-motion="collapse"], [data-chat-motion="reveal"]') !== null) {
+          clickRow(row);
+          return;
+        }
+        const start = el.getBoundingClientRect().height;
+        const target = headerHeight(el);
+        if (prefersReducedMotion() || !(start - target > 1.5)) {
+          clickRow(row);
+          return;
+        }
+        cancelFold(el);
+        el.setAttribute('data-session-motion-folding', '');
+        el.style.height = start + 'px';
+        el.style.overflow = 'hidden';
+        let anim;
+        try {
+          anim = el.animate(
+            [{ height: start + 'px' }, { height: target + 'px' }],
+            { duration: DISCLOSURE_MOTION_MS, easing: MOTION_EASING }
+          );
+        } catch {
+          clearFoldStyles(el);
+          clickRow(row);
+          return;
+        }
+        const entry = { anim, expectSettled, stopWait: null };
+        folding.set(el, entry);
+        anim.onfinish = () => finishFold(el, entry);
+        anim.oncancel = () => {
+          if (folding.get(el) === entry) {
+            folding.delete(el);
+            clearFoldStyles(el);
+          }
+        };
+      };
+
+      const finishUnfold = (el, entry) => {
+        if (folding.get(el) !== entry) return;
+        folding.delete(el);
+        if (entry.stopWait !== null) entry.stopWait();
+        clearFoldStyles(el);
+      };
+
+      /**
+       * The official toggle commits on its own tick, so the mounted height is not
+       * readable at click time. Holding the box at its header height keeps the body
+       * clipped until that write lands, then the same height eases open.
+       */
+      const unfoldRow = (el, row) => {
+        /* A running block keeps growing underneath the animation; commit natively. */
+        if (prefersReducedMotion() || el.getAttribute('data-state') === 'running') {
+          clickRow(row);
+          return;
+        }
+        cancelFold(el);
+        const start = el.getBoundingClientRect().height;
+        el.setAttribute('data-session-motion-folding', '');
+        el.style.height = start + 'px';
+        el.style.overflow = 'hidden';
+        const entry = { anim: null, expectSettled: false, stopWait: null };
+        folding.set(el, entry);
+        const grow = () => {
+          if (folding.get(el) !== entry || !el.hasAttribute('data-expanded')) return;
+          if (entry.stopWait !== null) entry.stopWait();
+          /* Read the committed height off the box itself, then pin it back before paint. */
+          el.style.height = '';
+          const end = el.getBoundingClientRect().height;
+          el.style.height = start + 'px';
+          if (!(end - start > 1.5)) {
+            finishUnfold(el, entry);
+            return;
+          }
+          holdMotion(DISCLOSURE_MOTION_MS + FOLLOW_MOTION_MS);
+          const port = el.closest('[data-conversation-scroll]');
+          if (port !== null && Math.abs(port.scrollTop - (port.scrollHeight - port.clientHeight)) <= FOLLOW_TOLERANCE_PX) {
+            pinFloorFor(DISCLOSURE_MOTION_MS + FOLLOW_MOTION_MS + HOLD_TAIL_MS);
+          }
+          let anim;
+          try {
+            anim = el.animate(
+              [{ height: start + 'px' }, { height: end + 'px' }],
+              { duration: DISCLOSURE_MOTION_MS, easing: MOTION_EASING }
+            );
+          } catch {
+            finishUnfold(el, entry);
+            return;
+          }
+          entry.anim = anim;
+          anim.onfinish = () => finishUnfold(el, entry);
+          anim.oncancel = () => {
+            if (folding.get(el) === entry) {
+              folding.delete(el);
+              clearFoldStyles(el);
+            }
+          };
+        };
+        const observer = new MutationObserver(grow);
+        observer.observe(el, { attributes: true, attributeFilter: ['data-expanded'] });
+        const timer = setTimeout(() => {
+          if (entry.anim === null) cancelFold(el);
+        }, UNFOLD_WAIT_MS);
+        entry.stopWait = () => {
+          observer.disconnect();
+          clearTimeout(timer);
+          entry.stopWait = null;
+        };
+        clickRow(row);
+        grow();
+      };
+
+      const scan = () => {
+        scheduled = false;
+        for (const el of document.querySelectorAll('[data-variant="think"]')) {
+          if (touched.has(el) || folding.has(el) || !isVisible(el)) continue;
+          const running = el.getAttribute('data-state') === 'running';
+          const expanded = el.hasAttribute('data-expanded');
+          if (running === expanded) continue;
+          const row = disclosureRow(el);
+          if (row === null) continue;
+          if (running) {
+            openedByPlugin.add(el);
+            clickRow(row);
+            continue;
+          }
+          if (!openedByPlugin.has(el)) continue;
+          if (el.querySelector('[data-session-motion-read]') !== null) continue;
+          foldRow(el, row, true);
+        }
+      };
+
+      const schedule = () => {
+        if (scheduled) return;
+        scheduled = true;
+        frame = requestAnimationFrame(scan);
+      };
+
+      const onUserToggle = (event) => {
+        if (autoClicking) return;
+        const target = event.target;
+        const el = target && typeof target.closest === 'function' ? target.closest('[data-variant="think"]') : null;
+        if (el === null) return;
+        touched.add(el);
+        if (folding.has(el)) {
+          cancelFold(el);
+          return;
+        }
+        const row = disclosureRow(el);
+        if (row === null || !row.contains(target)) return;
+        event.stopPropagation();
+        event.preventDefault();
+        if (el.hasAttribute('data-expanded')) foldRow(el, row, false);
+        else unfoldRow(el, row);
+      };
+      const onUserKey = (event) => {
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') onUserToggle(event);
+      };
+
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === 'attributes' || record.addedNodes.length > 0) {
+            schedule();
+            return;
+          }
+        }
+      });
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['data-state', 'data-expanded', 'aria-expanded', 'hidden']
+      });
+      document.addEventListener('click', onUserToggle, true);
+      document.addEventListener('keydown', onUserKey, true);
+      schedule();
+
+      return () => {
+        observer.disconnect();
+        document.removeEventListener('click', onUserToggle, true);
+        document.removeEventListener('keydown', onUserKey, true);
+        if (frame !== 0) cancelAnimationFrame(frame);
+        for (const el of Array.from(folding.keys())) cancelFold(el);
+      };
+    }
+
+    /**
+     * The transcript pins itself to the floor immediately on every growth batch.
+     * Compensating that batch's height delta on the transcript column turns each
+     * step into a short eased slide without touching the official scroll write.
+     */
+    function installTranscriptMotion() {
+      const records = new Map();
+      let disposed = false;
+      let scanScheduled = false;
+      let scanFrame = 0;
+
+      /* Attached before the reader reaches the floor so the first stream is covered too. */
+      const isTranscriptColumn = (column) =>
+        column.isConnected &&
+        column.closest('[data-step-process-body]') === null &&
+        column.nextElementSibling !== null &&
+        column.nextElementSibling.hasAttribute('data-chat-turn-spacer');
+
+      const scrollportOf = (column) => {
+        const scroll = column.parentElement;
+        if (scroll === null) return null;
+        return scroll.closest('[data-conversation-scroll]') ?? scroll;
+      };
+
+      const translateYOf = (element) => {
+        const transform = getComputedStyle(element).transform;
+        if (transform === 'none') return 0;
+        const match = transform.match(/^matrix\(([^)]+)\)$/);
+        if (match === null) return 0;
+        const value = Number.parseFloat(match[1].split(',')[5]);
+        return Number.isFinite(value) ? value : 0;
+      };
+
+      /**
+       * The slide rides the flow box, not the column: a shifted box inside the
+       * scrollport enlarges its scroll height, and the next follow write would
+       * overshoot by that much. Clipping the column keeps the geometry intact.
+       */
+      const surfaceOf = (column) => column.querySelector(':scope > [data-slot="conversation.chat.flow"]');
+
+      const clipColumn = (column, scrollport) => {
+        const gutter = Number.parseFloat(getComputedStyle(scrollport).paddingBottom) || 0;
+        column.style.overflowY = 'clip';
+        column.style.overflowX = 'visible';
+        if (gutter > 0) {
+          /* Reach the clip edge to the scrollport floor so emerging rows are not cut early. */
+          column.style.paddingBottom = gutter + 'px';
+          column.style.marginBottom = -gutter + 'px';
+        }
+      };
+
+      const unclipColumn = (column) => {
+        column.style.overflowY = '';
+        column.style.overflowX = '';
+        column.style.paddingBottom = '';
+        column.style.marginBottom = '';
+      };
+
+      /**
+       * The live status row keeps its resting place while content above it moves.
+       * Its anchor is its own resting bottom edge, never the scrollport floor: the
+       * composer region lives inside the same scroll body, so the transcript ends
+       * well above the floor and a floor anchor would drag the row into that gap —
+       * out of the clipped column, where it is not painted. The bottom edge is the
+       * stable end of the row, so a taller row grows upward instead of drifting.
+       */
+      const restBottomOf = (record) => {
+        const row = record.row;
+        if (row === null) return null;
+        const bottom = row.getBoundingClientRect().bottom;
+        return bottom - translateYOf(record.surface) - translateYOf(row);
+      };
+
+      const correctRow = (record) => {
+        const row = record.row;
+        if (row === null || record.anchor === null) return;
+        const residual = record.anchor - row.getBoundingClientRect().bottom;
+        if (Math.abs(residual) < 0.05) return;
+        row.style.transform = 'translateY(' + (translateYOf(row) + residual).toFixed(2) + 'px)';
+      };
+
+      const holdDriftOf = (record) => {
+        const row = record.row;
+        if (row === null || record.anchor === null) return 0;
+        return record.anchor - row.getBoundingClientRect().bottom;
+      };
+
+      const atFollowFloor = (record) => {
+        const port = record.scrollport;
+        return Math.abs(port.scrollTop - (port.scrollHeight - port.clientHeight)) <= FOLLOW_TOLERANCE_PX;
+      };
+
+      const stopHold = (record) => {
+        if (record.frame !== 0) cancelAnimationFrame(record.frame);
+        record.frame = 0;
+        record.holdUntil = 0;
+        const row = record.row;
+        record.row = null;
+        if (row === null) return;
+        row.style.transform = '';
+        row.removeAttribute('data-session-motion-animating');
+      };
+
+      const holdTick = (record) => {
+        record.frame = 0;
+        const row = record.row;
+        if (row === null) return;
+        if (!row.isConnected) {
+          stopHold(record);
+          return;
+        }
+        correctRow(record);
+        const now = performance.now();
+        if (now >= record.holdUntil && (Math.abs(holdDriftOf(record)) < 0.5 || now >= record.holdUntil + HOLD_GRACE_MS)) {
+          stopHold(record);
+          return;
+        }
+        record.frame = requestAnimationFrame(() => holdTick(record));
+      };
+
+      const holdRow = (record) => {
+        const row = record.surface.querySelector('[data-chat-running]');
+        if (row === null) {
+          stopHold(record);
+          return;
+        }
+        if (record.row !== row) {
+          stopHold(record);
+          record.row = row;
+          row.setAttribute('data-session-motion-animating', '');
+        }
+        /* A fresh hold re-reads the resting edge; a follow write still in flight leaves the previous one in charge. */
+        if (record.frame === 0 && (record.anchor === null || atFollowFloor(record))) {
+          record.anchor = restBottomOf(record);
+        }
+        record.holdUntil = performance.now() + FOLLOW_MOTION_MS + HOLD_TAIL_MS;
+        correctRow(record);
+        if (record.frame === 0) record.frame = requestAnimationFrame(() => holdTick(record));
+      };
+
+      const clearMotion = (record) => {
+        if (record.anim !== null) {
+          try {
+            record.anim.cancel();
+          } catch {
+            /* Already finished. */
+          }
+          record.anim = null;
+        }
+        record.surface.style.transform = '';
+        record.surface.removeAttribute('data-session-motion-animating');
+        stopHold(record);
+      };
+
+      const animateGrowth = (record, delta) => {
+        const surface = record.surface;
+        if (prefersReducedMotion()) return;
+        if (motionHeld()) return;
+        if (delta > STRUCTURAL_GROWTH_PX) return;
+        const start = translateYOf(surface) + delta;
+        if (!Number.isFinite(start) || start <= 0.5) return;
+        const from = 'translateY(' + start.toFixed(2) + 'px)';
+        surface.style.transform = from;
+        surface.setAttribute('data-session-motion-animating', '');
+        let anim;
+        try {
+          anim = surface.animate(
+            [{ transform: from }, { transform: 'translateY(0px)' }],
+            { duration: FOLLOW_MOTION_MS, easing: MOTION_EASING, fill: 'forwards' }
+          );
+        } catch {
+          clearMotion(record);
+          return;
+        }
+        const previous = record.anim;
+        record.anim = anim;
+        if (previous !== null) {
+          try {
+            previous.cancel();
+          } catch {
+            /* Already finished. */
+          }
+        }
+        anim.onfinish = () => {
+          if (record.anim !== anim) return;
+          record.anim = null;
+          surface.style.transform = '';
+          surface.removeAttribute('data-session-motion-animating');
+          try {
+            anim.cancel();
+          } catch {
+            /* Already finished. */
+          }
+        };
+      };
+
+      const measure = (record) => {
+        const column = record.column;
+        const scrollport = scrollportOf(column);
+        if (scrollport === null || !column.isConnected) return;
+        const floor = scrollport.scrollHeight - scrollport.clientHeight;
+        const delta = floor - record.lastFloor;
+        const height = column.offsetHeight;
+        const growth = height - record.lastHeight;
+        const clientHeight = scrollport.clientHeight;
+        record.lastFloor = floor;
+        record.lastHeight = height;
+        if (clientHeight !== record.lastClientHeight) {
+          record.lastClientHeight = clientHeight;
+          return;
+        }
+        if (performance.now() - record.attachedAt < ATTACH_SETTLE_MS) return;
+        if (column.closest('[data-chat-following-tail]') === null) return;
+        /* A native fold batch moves rows and the scrollport on its own clock. */
+        if (scrollport.style.overflowAnchor === 'none') return;
+        if (growth <= 0) return;
+        /* While the transcript is shorter than the viewport nothing is scrolled, so the row travels down with the layout. */
+        if (delta <= 0) return;
+        if (Math.abs(floor - scrollport.scrollTop) <= FOLLOW_TOLERANCE_PX) {
+          /* Unrelated scrollport growth (a taller composer) is not content movement. */
+          animateGrowth(record, Math.min(delta, growth));
+        }
+        /* A follow scroll carries every row up by the delta; hold the status row against it. */
+        holdRow(record);
+      };
+
+      /** Hold the tail on its floor while a reader-initiated open owns the layout. */
+      const pinFloor = (record) => {
+        if (!floorPinned()) return;
+        const port = record.scrollport;
+        const floor = port.scrollHeight - port.clientHeight;
+        if (Math.abs(floor - port.scrollTop) > 1) port.scrollTop = floor;
+      };
+
+      const attach = (column) => {
+        if (records.has(column)) return;
+        const scrollport = scrollportOf(column);
+        if (scrollport === null) return;
+        const surface = surfaceOf(column) ?? column;
+        if (surface !== column) clipColumn(column, scrollport);
+        const record = {
+          column,
+          surface,
+          scrollport,
+          clipped: surface !== column,
+          lastFloor: scrollport.scrollHeight - scrollport.clientHeight,
+          lastHeight: column.offsetHeight,
+          lastClientHeight: scrollport.clientHeight,
+          attachedAt: performance.now(),
+          anim: null,
+          row: null,
+          anchor: null,
+          frame: 0,
+          holdUntil: 0,
+          observer: null,
+          onScroll: null
+        };
+        records.set(column, record);
+        column.setAttribute('data-session-motion-tracking', '');
+        record.observer = new ResizeObserver(() => {
+          if (!disposed) measure(record);
+        });
+        record.observer.observe(column);
+        record.onScroll = () => pinFloor(record);
+        scrollport.addEventListener('scroll', record.onScroll, { passive: true });
+      };
+
+      const detach = (record) => {
+        records.delete(record.column);
+        if (record.observer !== null) record.observer.disconnect();
+        if (record.onScroll !== null) record.scrollport.removeEventListener('scroll', record.onScroll);
+        record.column.removeAttribute('data-session-motion-tracking');
+        clearMotion(record);
+        if (record.clipped) unclipColumn(record.column);
+      };
+
+      const scan = () => {
+        scanScheduled = false;
+        if (disposed) return;
+        for (const column of document.querySelectorAll('[data-chat-flow]')) {
+          if (isTranscriptColumn(column)) attach(column);
+        }
+        for (const record of Array.from(records.values())) {
+          if (!record.column.isConnected) detach(record);
+        }
+      };
+
+      const scheduleScan = () => {
+        if (scanScheduled) return;
+        scanScheduled = true;
+        scanFrame = requestAnimationFrame(scan);
+      };
+
+      const interrupt = () => {
+        releaseFloorPin();
+        holdMotion(GESTURE_COOLDOWN_MS);
+        for (const record of records.values()) clearMotion(record);
+      };
+      const onWheel = () => interrupt();
+      const onTouchStart = () => interrupt();
+      const onPointerDown = () => interrupt();
+      const onKeyDown = (event) => {
+        if (SCROLL_KEYS.has(event.key)) interrupt();
+      };
+
+      document.addEventListener('wheel', onWheel, { capture: true, passive: true });
+      document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+      document.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
+      document.addEventListener('keydown', onKeyDown, true);
+
+      const observer = new MutationObserver((records_) => {
+        for (const record of records_) {
+          if (record.type === 'childList' && record.addedNodes.length > 0) {
+            scheduleScan();
+            return;
+          }
+        }
+      });
+      observer.observe(document.body, { subtree: true, childList: true });
+      scan();
+
+      return () => {
+        disposed = true;
+        observer.disconnect();
+        document.removeEventListener('wheel', onWheel, { capture: true });
+        document.removeEventListener('touchstart', onTouchStart, { capture: true });
+        document.removeEventListener('pointerdown', onPointerDown, { capture: true });
+        document.removeEventListener('keydown', onKeyDown, true);
+        if (scanFrame !== 0) cancelAnimationFrame(scanFrame);
+        for (const record of Array.from(records.values())) detach(record);
+        records.clear();
+      };
+    }
+
+    return {
+      name: ROW_NAME,
+      inject: ['slots'],
+      apply(ctx) {
+        ctx.effect(() => {
+          const style = document.createElement('style');
+          style.dataset.plugin = PLUGIN_ID;
+          style.textContent = CSS;
+          document.head.append(style);
+          return () => style.remove();
+        }, ROW_NAME + ': global styles');
+
+        ctx.slots.inject('conversation.chat.reasoning.body', () =>
+          ctx.slots.register(
+            { name: 'conversation.chat.reasoning.body', priority: 50 },
+            ReasoningViewport
+          )
+        );
+
+        ctx.effect(installReasoningDisclosure, ROW_NAME + ': reasoning disclosure');
+        ctx.effect(installTranscriptMotion, ROW_NAME + ': transcript motion');
+      }
+    };
+  }
+});
