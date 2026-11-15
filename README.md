@@ -15,7 +15,7 @@
 
 ## client.js 的三段
 
-三段共享一个工厂作用域，但互不共享可变状态：各自的常量、字典、`ctx.effect` 标签和 DOM 属性前缀都带自己的段名，同名项一律加前缀区分（`MOTION_CSS` / `ASIDE_CSS` / `THEME_CSS`、`ASIDE_ZH` / `THEME_ZH`、`ASIDE_LOCALE_NS` / `THEME_LOCALE_NS`），没有覆盖式声明。`apply` 依次调用三个子 apply，每段包在自己的 try/catch 里：某一段启动抛错只记一行 `console.error`，其余两段照常工作。
+三段共享一个工厂作用域，但互不共享可变状态：各自的常量、字典、`ctx.effect` 标签和 DOM 属性前缀都带自己的段名，同名项一律加前缀区分（`MOTION_CSS` / `ASIDE_CSS` / `THEME_CSS`、`ASIDE_ZH` / `THEME_ZH`、`ASIDE_LOCALE_NS` / `THEME_LOCALE_NS`），没有覆盖式声明。`apply` 依次调用三个子 apply，每段包在自己的 try/catch 里：某一段启动抛错只记一行 `console.error`，其余两段照常工作。每段还用自己的 `ctx.inject` 声明所需服务（清单见末节「兼容性」），缺哪个服务只停哪一段。
 
 ### 1. motion —— 会话动效
 
@@ -96,4 +96,4 @@ plugin_manager(action="remove_bundle", target="dsh-atelier")
 
 - **公开契约**：会话资源协议与右侧栏标签类型（`ctx.resources.register` / `ctx.sidebarRightTabs.register` / `ctx.sidebarRight.openResource`）、会话行菜单槽位 `sidebar.workspaces.session.menu.item`、槽位 `sidebar.right.pane.tab`、`conversation.chat.reasoning.body`、客户端 `theme` 与 `locale` 服务、会话保留信息里的 `mainView` 计数。
 - **非公开 DOM 契约**：motion 依赖会话主屏的 `data-chat-flow`、`data-chat-following-tail`、`data-chat-turn-spacer`、`data-slot="conversation.chat.flow"`、`data-chat-running`、`data-variant="think"`；aside 依赖会话行的 `data-row-key="session:<id>"`、右侧栏的 `data-sidebar-right-*` 与停靠容器的 `data-dockkit-*`；theme 依赖 `[data-slot="sidebar.settings"]`；开屏依赖 `data-dsh-boot` 与 `data-dsh-boot-spinner`、`#root`。上游改名后各段会静默退回原生行为（不报错、不白屏）。
-- **服务依赖**：合并后 `inject` 取三段并集 `['sessions', 'slots', 'locale', 'sidebarRight', 'theme']`；`resources` 与 `sidebarRightTabs` 仍由 aside 段自己的 `ctx.inject` 动态取，只在该段激活时要求。原先是三个包各自只声明自己需要的服务，现在少任一必需服务则整包不激活。
+- **服务依赖（分段自门控）**：顶层 `inject` 为空，包立即激活；三段各用 `ctx.inject` 自门控，列表与旧实现逐项一致——motion `['slots']`、aside `['sessions', 'slots', 'locale', 'sidebarRight']`（内部的 `ctx.inject(['resources', 'sidebarRightTabs'], …)` 原样保留）、theme `['theme', 'locale']`。缺哪个服务只让对应那一段不激活，其余两段照常：既不因并集而整包沉默，也不会越权去摸没有声明的服务。

@@ -893,28 +893,31 @@ window.__ModuleLoader__.load({
 
     /**
      * Motion: the reasoning viewport slot, the streaming follow and the
-     * disclosure animation. Registers on the Client root it is given.
+     * disclosure animation. Gated on `slots` alone, so it activates wherever
+     * the Conversation slot host exists, even if nothing else here does.
      *
-     * @param ctx - Client root carrying slots.
+     * @param ctx - Client root; the body runs on the context `ctx.inject` hands it.
      */
     function applyMotion(ctx) {
-      ctx.effect(() => {
-        const style = document.createElement('style');
-        style.dataset.plugin = PLUGIN_ID;
-        style.textContent = MOTION_CSS;
-        document.head.append(style);
-        return () => style.remove();
-      }, 'atelier motion: global styles');
+      ctx.inject(['slots'], (scoped) => {
+        scoped.effect(() => {
+          const style = document.createElement('style');
+          style.dataset.plugin = PLUGIN_ID;
+          style.textContent = MOTION_CSS;
+          document.head.append(style);
+          return () => style.remove();
+        }, 'atelier motion: global styles');
 
-      ctx.slots.inject('conversation.chat.reasoning.body', () =>
-        ctx.slots.register(
-          { name: 'conversation.chat.reasoning.body', priority: 50 },
-          ReasoningViewport
-        )
-      );
+        scoped.slots.inject('conversation.chat.reasoning.body', () =>
+          scoped.slots.register(
+            { name: 'conversation.chat.reasoning.body', priority: 50 },
+            ReasoningViewport
+          )
+        );
 
-      ctx.effect(installReasoningDisclosure, 'atelier motion: reasoning disclosure');
-      ctx.effect(installTranscriptMotion, 'atelier motion: transcript motion');
+        scoped.effect(installReasoningDisclosure, 'atelier motion: reasoning disclosure');
+        scoped.effect(installTranscriptMotion, 'atelier motion: transcript motion');
+      });
     }
 
     /* ---------------------------------------------------------------------- *
@@ -1396,15 +1399,19 @@ window.__ModuleLoader__.load({
 
     /**
      * Aside: the chat resource owner, its right-Sidebar presentation, the
-     * session-menu entry and the row-drag drop surface.
+     * session-menu entry and the row-drag drop surface. Gated on the Sidebar and
+     * session services; `resources` and `sidebarRightTabs` stay on the inner
+     * `ctx.inject` inside `registerSessionAside`, exactly as before.
      *
      * @param ctx - the Client root context.
      */
     function applyAside(ctx) {
-      ctx.effect(() => ctx.locale.register(ASIDE_LOCALE_NS, { ASIDE_ZH, ASIDE_EN }), 'atelier aside: dictionaries');
-      const t = ctx.locale.bind(ASIDE_LOCALE_NS);
-      ctx.inject(['resources', 'sidebarRightTabs'], (scope) => registerSessionAside(scope, t));
-      ctx.effect(() => installDropSurface(ctx, t), 'atelier aside: drop surface');
+      ctx.inject(['sessions', 'slots', 'locale', 'sidebarRight'], (scoped) => {
+        scoped.effect(() => scoped.locale.register(ASIDE_LOCALE_NS, { ASIDE_ZH, ASIDE_EN }), 'atelier aside: dictionaries');
+        const t = scoped.locale.bind(ASIDE_LOCALE_NS);
+        scoped.inject(['resources', 'sidebarRightTabs'], (scope) => registerSessionAside(scope, t));
+        scoped.effect(() => installDropSurface(scoped, t), 'atelier aside: drop surface');
+      });
     }
 
     /* ---------------------------------------------------------------------- *
@@ -1479,141 +1486,144 @@ window.__ModuleLoader__.load({
     /**
      * Theme: mount the appearance switch on the sidebar account row (or under the
      * foot on the rail) and keep its glyph and label in step with the scheme.
+     * Gated on `theme` and `locale`.
      *
-     * @param ctx - Client root carrying the theme and locale services.
+     * @param ctx - the Client root context.
      */
     function applyTheme(ctx) {
-      const theme = ctx.theme;
+      ctx.inject(['theme', 'locale'], (scoped) => {
+        const theme = scoped.theme;
 
-      let snapshot = theme.getTheme();
-      ctx.effect(() => ctx.on('theme/change', (next) => {
-        snapshot = next;
-        paint();
-      }), 'atelier theme: theme changes');
+        let snapshot = theme.getTheme();
+        scoped.effect(() => scoped.on('theme/change', (next) => {
+          snapshot = next;
+          paint();
+        }), 'atelier theme: theme changes');
 
-      ctx.effect(() => ctx.locale.register(THEME_LOCALE_NS, { THEME_ZH, THEME_EN }), 'atelier theme: dictionaries');
+        scoped.effect(() => scoped.locale.register(THEME_LOCALE_NS, { THEME_ZH, THEME_EN }), 'atelier theme: dictionaries');
 
-      const t = ctx.locale.bind(THEME_LOCALE_NS);
+        const t = scoped.locale.bind(THEME_LOCALE_NS);
 
-      ctx.effect(() => {
-        if (document.querySelector('style[' + THEME_STYLE_MARK + ']') !== null) return;
-        const style = document.createElement('style');
-        style.setAttribute(THEME_STYLE_MARK, '');
-        style.textContent = THEME_CSS;
-        document.head.appendChild(style);
-        return () => style.remove();
-      }, 'atelier theme: styles');
+        scoped.effect(() => {
+          if (document.querySelector('style[' + THEME_STYLE_MARK + ']') !== null) return;
+          const style = document.createElement('style');
+          style.setAttribute(THEME_STYLE_MARK, '');
+          style.textContent = THEME_CSS;
+          document.head.appendChild(style);
+          return () => style.remove();
+        }, 'atelier theme: styles');
 
-      let button = null;
-      let anchor = null;
-      let row = null;
-      let trigger = null;
-      let observed = null;
-      let frame = 0;
-      let unsubscribeLocale = () => {};
+        let button = null;
+        let anchor = null;
+        let row = null;
+        let trigger = null;
+        let observed = null;
+        let frame = 0;
+        let unsubscribeLocale = () => {};
 
-      /** Repaint the glyph and accessible label for the current scheme. */
-      function paint() {
-        if (button === null) return;
-        const dark = snapshot.active.colorScheme === 'dark';
-        const label = t(dark ? 'toggle.toLight' : 'toggle.toDark');
-        button.dataset.scheme = dark ? 'dark' : 'light';
-        button.setAttribute('aria-label', label);
-        button.title = label;
-      }
-
-      /** Keep clear of trailing row controls (connection and update status). */
-      function place() {
-        if (button === null || row === null) return;
-        const rowRect = row.getBoundingClientRect();
-        let edge = rowRect.right;
-        for (const child of row.children) {
-          if (child === button || child === anchor || child.contains(trigger)) continue;
-          const rect = child.getBoundingClientRect();
-          if (rect.width > 0 && rect.right > edge - 64) edge = Math.min(edge, rect.left);
-        }
-        button.style.right = Math.max(6, rowRect.right - edge + 6) + 'px';
-      }
-
-      /** Move the control onto the account row, or under the foot on the rail. */
-      function ensure() {
-        frame = 0;
-        const nextAnchor = document.querySelector('[data-slot="sidebar.settings"]');
-        /*
-         * The seat's row button opens a popup: a settings dialog in older
-         * builds, the account menu in the current one. Match the popup marker
-         * instead of one value, and fall back to the row's first button so a
-         * later control change cannot silence the mount again.
-         */
-        const nextTrigger = nextAnchor === null ? null
-          : (nextAnchor.querySelector('button[aria-haspopup]') ?? nextAnchor.querySelector('button'));
-        if (nextAnchor === null || nextTrigger === null) return;
-        let nextRow = nextTrigger;
-        while (nextRow.parentElement !== null && nextRow.parentElement !== nextAnchor) nextRow = nextRow.parentElement;
-        if (nextRow === nextAnchor) return;
-
-        const wide = nextRow.getBoundingClientRect().width > 80;
-        const foot = nextAnchor.parentElement === null ? null : nextAnchor.parentElement.parentElement;
-        const host = wide ? nextRow : foot;
-        if (host === null) return;
-
-        const changed = anchor !== nextAnchor || row !== nextRow || trigger !== nextTrigger;
-        anchor = nextAnchor;
-        row = nextRow;
-        trigger = nextTrigger;
-
-        if (button === null) {
-          button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'atelier-theme-toggle';
-          button.innerHTML = THEME_SUN + THEME_MOON;
-          button.addEventListener('click', () => {
-            const current = theme.getTheme();
-            theme.setTheme(current.active.colorScheme === 'dark' ? 'light' : 'dark');
-          });
+        /** Repaint the glyph and accessible label for the current scheme. */
+        function paint() {
+          if (button === null) return;
+          const dark = snapshot.active.colorScheme === 'dark';
+          const label = t(dark ? 'toggle.toLight' : 'toggle.toDark');
+          button.dataset.scheme = dark ? 'dark' : 'light';
+          button.setAttribute('aria-label', label);
+          button.title = label;
         }
 
-        button.dataset.placement = wide ? 'row' : 'rail';
-        if (button.parentElement !== host) host.appendChild(button);
-        const pad = wide ? '36px' : '';
-        if (trigger.style.paddingRight !== pad) trigger.style.paddingRight = pad;
-
-        if (wide) place();
-        if (changed || observed !== nextRow) {
-          if (observed !== null) resize.unobserve(observed);
-          observed = nextRow;
-          resize.observe(nextRow);
+        /** Keep clear of trailing row controls (connection and update status). */
+        function place() {
+          if (button === null || row === null) return;
+          const rowRect = row.getBoundingClientRect();
+          let edge = rowRect.right;
+          for (const child of row.children) {
+            if (child === button || child === anchor || child.contains(trigger)) continue;
+            const rect = child.getBoundingClientRect();
+            if (rect.width > 0 && rect.right > edge - 64) edge = Math.min(edge, rect.left);
+          }
+          button.style.right = Math.max(6, rowRect.right - edge + 6) + 'px';
         }
-        paint();
-      }
 
-      const schedule = () => {
-        if (frame !== 0) return;
-        frame = window.requestAnimationFrame(ensure);
-      };
-
-      const resize = new ResizeObserver(schedule);
-      const mutations = new MutationObserver(schedule);
-
-      ctx.effect(() => {
-        mutations.observe(document.documentElement, { childList: true, subtree: true });
-        schedule();
-        unsubscribeLocale = ctx.locale.subscribe(paint);
-        return () => {
-          mutations.disconnect();
-          resize.disconnect();
-          unsubscribeLocale();
-          if (frame !== 0) window.cancelAnimationFrame(frame);
+        /** Move the control onto the account row, or under the foot on the rail. */
+        function ensure() {
           frame = 0;
-          if (trigger !== null) trigger.style.paddingRight = '';
-          if (button !== null) button.remove();
-          button = null;
-          anchor = null;
-          row = null;
-          trigger = null;
-          observed = null;
+          const nextAnchor = document.querySelector('[data-slot="sidebar.settings"]');
+          /*
+           * The seat's row button opens a popup: a settings dialog in older
+           * builds, the account menu in the current one. Match the popup marker
+           * instead of one value, and fall back to the row's first button so a
+           * later control change cannot silence the mount again.
+           */
+          const nextTrigger = nextAnchor === null ? null
+            : (nextAnchor.querySelector('button[aria-haspopup]') ?? nextAnchor.querySelector('button'));
+          if (nextAnchor === null || nextTrigger === null) return;
+          let nextRow = nextTrigger;
+          while (nextRow.parentElement !== null && nextRow.parentElement !== nextAnchor) nextRow = nextRow.parentElement;
+          if (nextRow === nextAnchor) return;
+
+          const wide = nextRow.getBoundingClientRect().width > 80;
+          const foot = nextAnchor.parentElement === null ? null : nextAnchor.parentElement.parentElement;
+          const host = wide ? nextRow : foot;
+          if (host === null) return;
+
+          const changed = anchor !== nextAnchor || row !== nextRow || trigger !== nextTrigger;
+          anchor = nextAnchor;
+          row = nextRow;
+          trigger = nextTrigger;
+
+          if (button === null) {
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'atelier-theme-toggle';
+            button.innerHTML = THEME_SUN + THEME_MOON;
+            button.addEventListener('click', () => {
+              const current = theme.getTheme();
+              theme.setTheme(current.active.colorScheme === 'dark' ? 'light' : 'dark');
+            });
+          }
+
+          button.dataset.placement = wide ? 'row' : 'rail';
+          if (button.parentElement !== host) host.appendChild(button);
+          const pad = wide ? '36px' : '';
+          if (trigger.style.paddingRight !== pad) trigger.style.paddingRight = pad;
+
+          if (wide) place();
+          if (changed || observed !== nextRow) {
+            if (observed !== null) resize.unobserve(observed);
+            observed = nextRow;
+            resize.observe(nextRow);
+          }
+          paint();
+        }
+
+        const schedule = () => {
+          if (frame !== 0) return;
+          frame = window.requestAnimationFrame(ensure);
         };
-      }, 'atelier theme: sidebar control');
+
+        const resize = new ResizeObserver(schedule);
+        const mutations = new MutationObserver(schedule);
+
+        scoped.effect(() => {
+          mutations.observe(document.documentElement, { childList: true, subtree: true });
+          schedule();
+          unsubscribeLocale = scoped.locale.subscribe(paint);
+          return () => {
+            mutations.disconnect();
+            resize.disconnect();
+            unsubscribeLocale();
+            if (frame !== 0) window.cancelAnimationFrame(frame);
+            frame = 0;
+            if (trigger !== null) trigger.style.paddingRight = '';
+            if (button !== null) button.remove();
+            button = null;
+            anchor = null;
+            row = null;
+            trigger = null;
+            observed = null;
+          };
+        }, 'atelier theme: sidebar control');
+      });
     }
 
     /**
@@ -1637,11 +1647,11 @@ window.__ModuleLoader__.load({
     return {
       name: ROW_NAME,
       /**
-       * The union of what the three sections need. `resources` and
-       * `sidebarRightTabs` stay out of this list: the aside section takes them
-       * with its own `ctx.inject` call so it activates only where they exist.
+       * No hard dependency: the bundle activates at once, and every section gates
+       * itself with its own `ctx.inject` list, so a missing service costs that one
+       * feature instead of the whole bundle.
        */
-      inject: ['sessions', 'slots', 'locale', 'sidebarRight', 'theme'],
+      inject: [],
       apply(ctx) {
         const features = readFeatureSwitches(ctx);
         startSection(ctx, 'motion', features.motion, applyMotion);
