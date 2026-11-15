@@ -1,0 +1,127 @@
+/*
+ * Opening sequence for the DSH shell.
+ *
+ * The palette falls back to the boot canvas (`--dsh-boot-bg` is set by the
+ * theme bootstrap before this sheet runs) and to the platform colours, so the
+ * first painted frame matches the stock boot screen in either theme.
+ *
+ * The mark is the shell's own sidebar brand — whale, "deepseek" wordmark and
+ * HARNESS badge — carried as the app's vector art. The overlay font size is the
+ * lockup height and every part is sized in em against it, so the splash scales
+ * as one piece.
+ * Motion is one timeline: the lockup surfaces, the row opens at the badge seam
+ * while the badge rises into it; `splash.js` fades the layer out when the
+ * workspace is ready.
+ */
+
+.atelier-splash {
+  --atelier-splash-mark-height: 32px;
+  /* The badge letters are knocked out of the pill, so they take the canvas. */
+  --atelier-splash-inverted: var(--dsh-boot-bg, Canvas);
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: var(--dsh-boot-bg, Canvas);
+  color: var(--dsw-alias-label-primary, #0f1115);
+  font-size: var(--atelier-splash-mark-height);
+  opacity: 1;
+  transition: opacity 420ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body[data-ds-dark-theme] .atelier-splash {
+  color: var(--dsw-alias-label-primary, #f9fafb);
+}
+
+.atelier-splash.is-leaving {
+  opacity: 0;
+}
+
+.atelier-splash-word {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(6px);
+  will-change: opacity, transform, filter;
+  transition:
+    opacity 560ms cubic-bezier(0.22, 0.61, 0.24, 1) 60ms,
+    transform 700ms cubic-bezier(0.22, 0.61, 0.24, 1) 60ms,
+    filter 560ms cubic-bezier(0.22, 0.61, 0.24, 1) 60ms;
+}
+
+.atelier-splash.is-ready .atelier-splash-word {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* Whale icon: 24 x 17.658 in the sidebar lockup. */
+.atelier-splash-whale {
+  display: block;
+  width: 1em;
+  height: 0.7358em;
+}
+
+/* "deepseek" letters: the wordmark cropped at the badge seam. */
+.atelier-splash-mark {
+  display: block;
+  margin-left: 0.2083em; /* 5 / 24 — the sidebar gap between whale and wordmark */
+  width: 3.9479em; /* 94.75 / 24 */
+  height: 1em;
+}
+
+/*
+ * Width zero keeps the wordmark tight; opening it to the sidebar's gap plus the
+ * badge inserts the opening the badge rises into. The easing is a symmetric
+ * ease-in-out: the seam gathers speed and settles back evenly, so its peak
+ * velocity is under half of what a tightly pinned curve gives.
+ */
+.atelier-splash-slot {
+  position: relative;
+  flex: 0 0 auto;
+  display: block;
+  width: 0;
+  overflow: hidden;
+  transition: width 760ms cubic-bezier(0.65, 0, 0.35, 1) 460ms;
+}
+
+.atelier-splash-word.is-open .atelier-splash-slot {
+  width: 2.4917em; /* (7.7 gap + 52.1 badge) / 24 */
+}
+
+/*
+ * The badge waits below its seat and rises while the seam opens; the slot clips
+ * it, so the pill emerges from the baseline instead of flying over the row.
+ */
+.atelier-splash-badge {
+  display: block;
+  width: 2.1708em; /* 52.1 / 24 */
+  height: 1em;
+  padding-left: 0.3208em; /* 7.7 / 24 — the gap before the pill */
+  opacity: 0;
+  transform: translateY(0.62em);
+  transition:
+    opacity 420ms cubic-bezier(0.22, 0.61, 0.24, 1) 700ms,
+    transform 640ms cubic-bezier(0.16, 0.84, 0.24, 1) 620ms;
+}
+
+.atelier-splash-word.is-open .atelier-splash-badge {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Reduced motion keeps the lockup readable and drops the choreography. */
+.atelier-splash.is-reduced {
+  transition-duration: 140ms;
+}
+
+.atelier-splash.is-reduced .atelier-splash-word,
+.atelier-splash.is-reduced .atelier-splash-slot,
+.atelier-splash.is-reduced .atelier-splash-badge {
+  transition-duration: 1ms;
+  transition-delay: 0ms;
+}
