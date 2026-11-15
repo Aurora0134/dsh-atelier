@@ -14,10 +14,10 @@
  * workspace is ready.
  */
 
-.dsh-splash {
-  --dsh-splash-mark-height: 32px;
+.atelier-splash {
+  --atelier-splash-mark-height: 32px;
   /* The badge letters are knocked out of the pill, so they take the canvas. */
-  --dsh-splash-inverted: var(--dsh-boot-bg, Canvas);
+  --atelier-splash-inverted: var(--dsh-boot-bg, Canvas);
   position: fixed;
   inset: 0;
   z-index: 2147483000;
@@ -26,20 +26,20 @@
   pointer-events: none;
   background: var(--dsh-boot-bg, Canvas);
   color: var(--dsw-alias-label-primary, #0f1115);
-  font-size: var(--dsh-splash-mark-height);
+  font-size: var(--atelier-splash-mark-height);
   opacity: 1;
   transition: opacity 420ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-body[data-ds-dark-theme] .dsh-splash {
+body[data-ds-dark-theme] .atelier-splash {
   color: var(--dsw-alias-label-primary, #f9fafb);
 }
 
-.dsh-splash.is-leaving {
+.atelier-splash.is-leaving {
   opacity: 0;
 }
 
-.dsh-splash-word {
+.atelier-splash-word {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -53,21 +53,21 @@ body[data-ds-dark-theme] .dsh-splash {
     filter 560ms cubic-bezier(0.22, 0.61, 0.24, 1) 60ms;
 }
 
-.dsh-splash.is-ready .dsh-splash-word {
+.atelier-splash.is-ready .atelier-splash-word {
   opacity: 1;
   transform: translateY(0);
   filter: blur(0);
 }
 
 /* Whale icon: 24 x 17.658 in the sidebar lockup. */
-.dsh-splash-whale {
+.atelier-splash-whale {
   display: block;
   width: 1em;
   height: 0.7358em;
 }
 
 /* "deepseek" letters: the wordmark cropped at the badge seam. */
-.dsh-splash-mark {
+.atelier-splash-mark {
   display: block;
   margin-left: 0.2083em; /* 5 / 24 — the sidebar gap between whale and wordmark */
   width: 3.9479em; /* 94.75 / 24 */
@@ -80,7 +80,7 @@ body[data-ds-dark-theme] .dsh-splash {
  * ease-in-out: the seam gathers speed and settles back evenly, so its peak
  * velocity is under half of what a tightly pinned curve gives.
  */
-.dsh-splash-slot {
+.atelier-splash-slot {
   position: relative;
   flex: 0 0 auto;
   display: block;
@@ -89,7 +89,7 @@ body[data-ds-dark-theme] .dsh-splash {
   transition: width 760ms cubic-bezier(0.65, 0, 0.35, 1) 460ms;
 }
 
-.dsh-splash-word.is-open .dsh-splash-slot {
+.atelier-splash-word.is-open .atelier-splash-slot {
   width: 2.4917em; /* (7.7 gap + 52.1 badge) / 24 */
 }
 
@@ -97,7 +97,7 @@ body[data-ds-dark-theme] .dsh-splash {
  * The badge waits below its seat and rises while the seam opens; the slot clips
  * it, so the pill emerges from the baseline instead of flying over the row.
  */
-.dsh-splash-badge {
+.atelier-splash-badge {
   display: block;
   width: 2.1708em; /* 52.1 / 24 */
   height: 1em;
@@ -109,19 +109,19 @@ body[data-ds-dark-theme] .dsh-splash {
     transform 640ms cubic-bezier(0.16, 0.84, 0.24, 1) 620ms;
 }
 
-.dsh-splash-word.is-open .dsh-splash-badge {
+.atelier-splash-word.is-open .atelier-splash-badge {
   opacity: 1;
   transform: translateY(0);
 }
 
 /* Reduced motion keeps the lockup readable and drops the choreography. */
-.dsh-splash.is-reduced {
+.atelier-splash.is-reduced {
   transition-duration: 140ms;
 }
 
-.dsh-splash.is-reduced .dsh-splash-word,
-.dsh-splash.is-reduced .dsh-splash-slot,
-.dsh-splash.is-reduced .dsh-splash-badge {
+.atelier-splash.is-reduced .atelier-splash-word,
+.atelier-splash.is-reduced .atelier-splash-slot,
+.atelier-splash.is-reduced .atelier-splash-badge {
   transition-duration: 1ms;
   transition-delay: 0ms;
 }

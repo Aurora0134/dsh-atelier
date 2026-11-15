@@ -15,7 +15,7 @@
 ;(() => {
   'use strict'
 
-  const OVERLAY_CLASS = 'dsh-splash'
+  const OVERLAY_CLASS = 'atelier-splash'
   const READY_CLASS = 'is-ready'
   const OPEN_CLASS = 'is-open'
   const LEAVING_CLASS = 'is-leaving'
@@ -23,7 +23,7 @@
   const BOOT_SELECTOR = '[data-dsh-boot]'
   const SPINNER_SELECTOR = '[data-dsh-boot-spinner]'
   const APP_ROOT_ID = 'root'
-  const GUARD = '__dshSplashMounted'
+  const GUARD = '__atelierSplashMounted'
 
   /**
    * Split geometry in the wordmark's own units (its viewBox is `26 0 156 24`):
@@ -67,7 +67,7 @@
   const badgeCopy = (markup) => markup
     .replace(/id="([^"]+)"/g, (_, id) => `id="${id}-badge"`)
     .replace(/url\(#([^)]+)\)/g, (_, id) => `url(#${id}-badge)`)
-    .replaceAll('var(--dsw-alias-label-primary-inverted)', 'var(--dsh-splash-inverted)')
+    .replaceAll('var(--dsw-alias-label-primary-inverted)', 'var(--atelier-splash-inverted)')
 
   const whale = parseSvg(WHALE_SVG)
   whale.setAttribute('class', `${OVERLAY_CLASS}-whale`)
