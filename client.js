@@ -1407,7 +1407,7 @@ window.__ModuleLoader__.load({
      */
     function applyAside(ctx) {
       ctx.inject(['sessions', 'slots', 'locale', 'sidebarRight'], (scoped) => {
-        scoped.effect(() => scoped.locale.register(ASIDE_LOCALE_NS, { ASIDE_ZH, ASIDE_EN }), 'atelier aside: dictionaries');
+        scoped.effect(() => scoped.locale.register(ASIDE_LOCALE_NS, { zh: ASIDE_ZH, en: ASIDE_EN }), 'atelier aside: dictionaries');
         const t = scoped.locale.bind(ASIDE_LOCALE_NS);
         scoped.inject(['resources', 'sidebarRightTabs'], (scope) => registerSessionAside(scope, t));
         scoped.effect(() => installDropSurface(scoped, t), 'atelier aside: drop surface');
@@ -1500,7 +1500,7 @@ window.__ModuleLoader__.load({
           paint();
         }), 'atelier theme: theme changes');
 
-        scoped.effect(() => scoped.locale.register(THEME_LOCALE_NS, { THEME_ZH, THEME_EN }), 'atelier theme: dictionaries');
+        scoped.effect(() => scoped.locale.register(THEME_LOCALE_NS, { zh: THEME_ZH, en: THEME_EN }), 'atelier theme: dictionaries');
 
         const t = scoped.locale.bind(THEME_LOCALE_NS);
 
